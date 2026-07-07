@@ -1,0 +1,34 @@
+profile:
+  id: devops
+  version: v0.1
+  display_name: DevOps Release Workspace
+  scope_type: release_workspace
+  privacy_default: local
+
+layout:
+  directories:
+    - domains/devops/package-runs
+    - domains/devops/images
+    - domains/devops/verifications
+    - artifacts
+    - logs
+
+write_rules:
+  records:
+    package_run:
+      path: domains/devops/package-runs/{run_id}/summary.md
+      mode: create_only
+      required_vars: [run_id]
+      required_refs: []
+      register_artifact: true
+      artifact_type: package_run
+
+read_rules:
+  context_pack:
+    include: [domains/devops/**, artifacts/**, logs/**]
+    exclude: [.meta/**]
+    max_files: 30
+    max_chars_per_file: 4000
+
+artifacts:
+  types: [package_run, image_manifest, verification_result]

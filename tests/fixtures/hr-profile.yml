@@ -1,0 +1,28 @@
+profile:
+  id: hr
+  version: v0.1
+  display_name: HR Talent Pool
+  scope_type: talent_pool
+  privacy_default: sensitive_local
+
+layout:
+  directories:
+    - domains/hr/candidates
+
+write_rules:
+  records:
+    candidate_profile:
+      path: domains/hr/candidates/{candidate_id}/profile.md
+      mode: update_allowed
+      required_vars: [candidate_id]
+      required_refs: [source_id]
+
+read_rules:
+  context_pack:
+    include: [domains/hr/**]
+    exclude: [.meta/**]
+    max_files: 30
+    max_chars_per_file: 4000
+
+artifacts:
+  types: [screening_report]
