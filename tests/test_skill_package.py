@@ -47,6 +47,16 @@ def test_init_uses_dynamic_binding_without_modifying_scp():
     assert "disabled" in text
 
 
+def test_init_requires_confirmation_before_installing_missing_runtime_from_github():
+    text = read(CHILDREN["llm-wiki-init"])
+    assert "llm-wiki version" in text
+    assert "python -m pip install" in text
+    assert "github.com/huajiexiewenfeng/llm-wiki-runtime" in text
+    assert "confirmation" in text.lower()
+    assert "do not install" in text.lower()
+    assert "runtime_unavailable" in text
+
+
 def test_ingest_requires_preview_before_any_write_and_is_retry_safe():
     text = read(CHILDREN["llm-wiki-ingest"])
     assert "validate-mapping" in text

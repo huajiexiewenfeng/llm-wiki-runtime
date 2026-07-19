@@ -8,6 +8,20 @@ description: Use when initializing or enabling an LLM Wiki domain, choosing its 
 Initialize dynamic runtime state for one domain. Domain packages provide the
 profile; runtime owns storage and snapshots. Do not modify any scp.yml.
 
+## Runtime Availability Gate
+
+1. Run `llm-wiki version` before resolving a profile.
+2. If the command is unavailable, explain that the Core Skill is installed but
+   its Python runtime is missing, then ask one plain-language confirmation.
+3. Only after confirmation, use Python 3.10+ to run
+   `python -m pip install "git+https://github.com/huajiexiewenfeng/llm-wiki-runtime.git"`.
+4. Run `llm-wiki version` again and continue only when it reports success.
+
+Do not install packages silently. If the user declines, Python is unavailable,
+installation fails, or the command still cannot run, return
+`runtime_unavailable` and let the calling Domain Skill continue through its
+documented fallback.
+
 ## Inputs
 
 Resolve the domain and profile from an explicit user choice or the calling
