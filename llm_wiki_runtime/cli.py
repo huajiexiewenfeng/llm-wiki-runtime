@@ -7,8 +7,12 @@ from pathlib import Path
 
 from . import __version__
 from .config import resolve_config
+from .ingest import prepare_excerpt, write_excerpt_snapshot
+from .mapping import load_ingest_mapping, validate_ingest_mapping
+from .profile import load_profile
 from .runtime import (
     append_log,
+    append_profile_log,
     copy_source,
     init_home,
     init_profile,
@@ -17,6 +21,15 @@ from .runtime import (
     register_artifact,
     write_record,
 )
+from .scp import build_registry, write_registry
+
+
+def with_response_envelope(payload: dict) -> dict:
+    enriched = dict(payload)
+    enriched.setdefault("warnings", [])
+    enriched.setdefault("next_actions", [])
+    enriched.setdefault("context_refs", [])
+    return enriched
 
 
 def emit(payload: dict, exit_code: int = 0) -> int:
@@ -24,7 +37,7 @@ def emit(payload: dict, exit_code: int = 0) -> int:
         sys.stdout.reconfigure(encoding="utf-8")
     except AttributeError:
         pass
-    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    print(json.dumps(with_response_envelope(payload), ensure_ascii=False, sort_keys=True))
     return exit_code
 
 
@@ -54,19 +67,23 @@ def build_parser() -> argparse.ArgumentParser:
     copy.add_argument("--source", required=True)
     copy.add_argument("--logical-path", required=True)
     copy.add_argument("--source-type", required=True)
+    copy.add_argument("--metadata-json", default="{}")
 
     artifact = sub.add_parser("register-artifact")
     artifact.add_argument("--wiki-root", required=True)
     artifact.add_argument("--record-json", required=True)
 
     log = sub.add_parser("append-log")
-    log.add_argument("--wiki-root", required=True)
-    log.add_argument("--log", required=True)
+    log.add_argument("--wiki-root")
+    log.add_argument("--log")
+    log.add_argument("--scope-root")
+    log.add_argument("--profile-path")
+    log.add_argument("--log-type")
     log.add_argument("--record-json", required=True)
 
     write = sub.add_parser("write-record")
     write.add_argument("--scope-root", required=True)
-    write.add_argument("--profile-path", required=True)
+    write.add_argument("--profile-path")
     write.add_argument("--record-type", required=True)
     write.add_argument("--variables-json", required=True)
     write.add_argument("--refs-json", required=True)
@@ -78,6 +95,33 @@ def build_parser() -> argparse.ArgumentParser:
     context.add_argument("--exclude-json", default="[]")
     context.add_argument("--max-files", type=int, default=30)
     context.add_argument("--max-chars-per-file", type=int, default=4000)
+    context.add_argument("--path-json", default="[]")
+    context.add_argument("--glob-json", default="[]")
+    context.add_argument("--order", choices=["path_asc", "mtime_desc"], default="path_asc")
+    context.add_argument("--policy")
+    context.add_argument("--caller-domain")
+    context.add_argument("--target-domain")
+    context.add_argument("--domain-policies-json")
+    context.add_argument("--caller-groups-json", default="[]")
+
+    prepare = sub.add_parser("prepare-excerpt")
+    prepare.add_argument("--items-file", required=True)
+    prepare.add_argument("--selections-file", required=True)
+    prepare.add_argument("--output", required=True)
+    prepare.add_argument("--id-prefix", default="jd")
+    prepare.add_argument("--confirmed-at", required=True)
+
+    validate_mapping = sub.add_parser("validate-mapping")
+    validate_mapping.add_argument("--mapping-path", required=True)
+    validate_mapping.add_argument("--registry-path", required=True)
+    validate_mapping.add_argument("--profile-path", required=True)
+
+    scan_scp = sub.add_parser("scan-scp")
+    scan_scp.add_argument("--scp-path-json", required=True)
+    scan_scp.add_argument("--domain-policies-json")
+    scan_scp.add_argument("--caller-groups-json", default="{}")
+    scan_scp.add_argument("--write", action="store_true")
+    scan_scp.add_argument("--output")
     return parser
 
 
@@ -109,22 +153,76 @@ def main(argv: list[str] | None = None) -> int:
             scope_root = Path(args.scope_root)
             if args.decline:
                 if not args.profile:
-                    return emit({"status": "validation_error", "error": "--profile is required for --decline"}, 2)
+                    return emit(
+                        {
+                            "status": "validation_error",
+                            "error": "--profile is required for --decline",
+                            "next_actions": ["pass --profile <profile-id>"],
+                        },
+                        2,
+                    )
                 return emit(record_decline(args.profile, args.storage_mode, scope_root))
             if not args.profile_path:
-                return emit({"status": "validation_error", "error": "--profile-path is required"}, 2)
+                return emit(
+                    {
+                        "status": "validation_error",
+                        "error": "--profile-path is required",
+                        "next_actions": ["pass --profile-path <llm-wiki-profile.yml>"],
+                    },
+                    2,
+                )
             return emit(init_profile(scope_root, Path(args.profile_path), args.storage_mode, args.scope_id))
         if args.command == "copy-source":
-            return emit(copy_source(Path(args.wiki_root), Path(args.source), args.logical_path, args.source_type))
+            return emit(
+                copy_source(
+                    Path(args.wiki_root),
+                    Path(args.source),
+                    args.logical_path,
+                    args.source_type,
+                    json.loads(args.metadata_json),
+                )
+            )
         if args.command == "register-artifact":
             return emit(register_artifact(Path(args.wiki_root), json.loads(args.record_json)))
         if args.command == "append-log":
+            profile_mode = any((args.scope_root, args.profile_path, args.log_type))
+            compatibility_mode = any((args.wiki_root, args.log))
+            if profile_mode and compatibility_mode:
+                return emit(
+                    {"status": "validation_error", "error": "append-log modes cannot be mixed"},
+                    2,
+                )
+            if profile_mode:
+                if not args.scope_root or not args.log_type:
+                    return emit(
+                        {
+                            "status": "validation_error",
+                            "error": "--scope-root and --log-type are required for profile mode",
+                        },
+                        2,
+                    )
+                return emit(
+                    append_profile_log(
+                        Path(args.scope_root),
+                        Path(args.profile_path) if args.profile_path else None,
+                        args.log_type,
+                        json.loads(args.record_json),
+                    )
+                )
+            if not args.wiki_root or not args.log:
+                return emit(
+                    {
+                        "status": "validation_error",
+                        "error": "--wiki-root and --log are required for compatibility mode",
+                    },
+                    2,
+                )
             return emit(append_log(Path(args.wiki_root), args.log, json.loads(args.record_json)))
         if args.command == "write-record":
             return emit(
                 write_record(
                     Path(args.scope_root),
-                    Path(args.profile_path),
+                    Path(args.profile_path) if args.profile_path else None,
                     args.record_type,
                     json.loads(args.variables_json),
                     json.loads(args.refs_json),
@@ -139,13 +237,69 @@ def main(argv: list[str] | None = None) -> int:
                     json.loads(args.exclude_json),
                     args.max_files,
                     args.max_chars_per_file,
+                    json.loads(args.path_json),
+                    json.loads(args.glob_json),
+                    args.order,
+                    args.policy,
+                    args.caller_domain,
+                    args.target_domain,
+                    json.loads(args.domain_policies_json) if args.domain_policies_json else None,
+                    json.loads(args.caller_groups_json),
                 )
             )
+        if args.command == "prepare-excerpt":
+            items = json.loads(Path(args.items_file).read_text(encoding="utf-8"))
+            selections = json.loads(Path(args.selections_file).read_text(encoding="utf-8"))
+            payload = prepare_excerpt(items, selections, args.id_prefix, args.confirmed_at)
+            snapshot_path = write_excerpt_snapshot(payload, Path(args.output))
+            return emit(
+                {
+                    "status": "ok",
+                    "version_id": payload["version_id"],
+                    "body_checksum": payload["body_checksum"],
+                    "metadata": payload["metadata"],
+                    "risk_flags": payload["risk_flags"],
+                    "snapshot_path": str(snapshot_path),
+                }
+            )
+        if args.command == "validate-mapping":
+            mapping_path = Path(args.mapping_path)
+            if not mapping_path.is_file():
+                return emit(
+                    {
+                        "status": "domain_mapping_required",
+                        "error": f"ingest mapping is missing: {mapping_path}",
+                        "next_actions": ["install or create the domain-owned ingest-mapping.yml"],
+                    },
+                    1,
+                )
+            mapping = load_ingest_mapping(mapping_path)
+            registry = json.loads(Path(args.registry_path).read_text(encoding="utf-8"))
+            profile = load_profile(Path(args.profile_path))
+            return emit(validate_ingest_mapping(mapping, registry, profile))
+        if args.command == "scan-scp":
+            registry = build_registry(
+                [Path(item) for item in json.loads(args.scp_path_json)],
+                json.loads(args.domain_policies_json) if args.domain_policies_json else None,
+                json.loads(args.caller_groups_json),
+            )
+            payload = {"status": "ok", **registry}
+            if args.write:
+                registry_path = write_registry(registry, Path(args.output) if args.output else None)
+                payload["registry_path"] = str(registry_path)
+            return emit(payload)
         return emit({"status": "invalid_command", "command": args.command}, 2)
     except (ValueError, FileExistsError, json.JSONDecodeError) as exc:
         return emit({"status": "validation_error", "error": str(exc)}, 2)
     except (OSError, TimeoutError) as exc:
-        return emit({"status": "io_error", "error": str(exc)}, 3)
+        return emit(
+            {
+                "status": "io_error",
+                "error": str(exc),
+                "next_actions": ["run maintain or retry after checking filesystem permissions"],
+            },
+            3,
+        )
     except Exception as exc:
         return emit({"status": "unexpected_error", "error": str(exc)}, 4)
 

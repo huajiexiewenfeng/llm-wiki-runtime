@@ -12,6 +12,9 @@ dependencies = []
 [project.scripts]
 llm-wiki = "llm_wiki_runtime.cli:main"
 
+[tool.setuptools.packages.find]
+include = ["llm_wiki_runtime*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

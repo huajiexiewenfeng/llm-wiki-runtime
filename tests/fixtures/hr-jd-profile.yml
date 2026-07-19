@@ -1,0 +1,41 @@
+profile:
+  id: hr
+  version: v0.1
+  display_name: HR JD Fixture
+  scope_type: talent_pool
+  privacy_default: sensitive_local
+
+layout:
+  directories:
+    - domains/hr/jobs
+    - sources/originals/hr/jobs
+    - logs
+
+write_rules:
+  records:
+    job_profile:
+      path: domains/hr/jobs/{job_id}/profile.md
+      mode: update_allowed
+      required_vars: [job_id]
+      required_refs: [source_id, jd_version_id]
+    jd_version:
+      path: domains/hr/jobs/{job_id}/versions/{jd_version_id}.md
+      mode: create_only
+      required_vars: [job_id, jd_version_id]
+      required_refs: [source_id]
+
+logs:
+  types:
+    hr_jd_import:
+      path: logs/hr-jd-import.jsonl
+      mode: append_only
+
+read_rules:
+  context_pack:
+    include: [domains/hr/**]
+    exclude: [sources/originals/**, .meta/**]
+    max_files: 30
+    max_chars_per_file: 4000
+
+artifacts:
+  types: []

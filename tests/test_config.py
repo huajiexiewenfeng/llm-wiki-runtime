@@ -1,6 +1,20 @@
 from pathlib import Path
 
 from llm_wiki_runtime.config import default_home_for_platform, resolve_config
+from llm_wiki_runtime.runtime import init_home
+
+
+def test_init_home_config_is_used_by_resolve_config(tmp_path, monkeypatch):
+    runtime_config = tmp_path / "runtime-config.yml"
+    configured_home = tmp_path / "configured-home"
+    monkeypatch.setenv("LLM_WIKI_RUNTIME_CONFIG", str(runtime_config))
+    monkeypatch.delenv("LLM_WIKI_HOME", raising=False)
+
+    init_home(configured_home)
+
+    result = resolve_config(cwd=tmp_path, profile="hr")
+    assert result.wiki_home == configured_home
+    assert result.wiki_root == configured_home / "scopes" / "hr-default" / ".llm-wiki"
 
 
 def test_missing_home_scope_returns_missing_config(tmp_path, monkeypatch):

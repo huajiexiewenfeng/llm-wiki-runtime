@@ -35,7 +35,13 @@ def runtime_config_path() -> Path:
 
 
 def resolve_home() -> Path:
-    return Path(os.environ.get("LLM_WIKI_HOME", default_home_for_platform()))
+    override = os.environ.get("LLM_WIKI_HOME")
+    if override:
+        return Path(override)
+    configured = read_text_config(runtime_config_path()).get("home")
+    if configured:
+        return Path(configured)
+    return default_home_for_platform()
 
 
 def read_text_config(path: Path) -> dict[str, str]:

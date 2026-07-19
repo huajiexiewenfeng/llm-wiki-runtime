@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .models import ContextPackRule, Profile, WriteRule
+from .models import ContextPackRule, LogRule, Profile, WriteRule
+
+
+PROFILE_SNAPSHOT_RELATIVE = Path(".meta/profile.yml")
 
 
 def parse_scalar(value: str):
@@ -29,12 +32,16 @@ def load_profile(path: Path) -> Profile:
     write_rules: dict[str, WriteRule] = {}
     context_values: dict[str, object] = {}
     artifact_types: list[str] = []
+    log_rules: dict[str, LogRule] = {}
 
     section: str | None = None
     current_record: str | None = None
     current_rule: dict[str, object] = {}
     in_directories = False
     in_context_pack = False
+    in_log_types = False
+    current_log_type: str | None = None
+    current_log_rule: dict[str, object] = {}
 
     def flush_record() -> None:
         nonlocal current_record, current_rule
@@ -51,6 +58,23 @@ def load_profile(path: Path) -> Profile:
         current_record = None
         current_rule = {}
 
+    def flush_log_rule() -> None:
+        nonlocal current_log_type, current_log_rule
+        if current_log_type:
+            path_value = str(current_log_rule.get("path", ""))
+            mode_value = str(current_log_rule.get("mode", "append_only"))
+            if not path_value:
+                raise ValueError(f"log path is required: {current_log_type}")
+            if mode_value != "append_only":
+                raise ValueError(f"unsupported log mode: {mode_value}")
+            log_rules[current_log_type] = LogRule(
+                log_type=current_log_type,
+                path=path_value,
+                mode=mode_value,
+            )
+        current_log_type = None
+        current_log_rule = {}
+
     for raw in lines:
         if not raw.strip() or raw.lstrip().startswith("#"):
             continue
@@ -58,9 +82,11 @@ def load_profile(path: Path) -> Profile:
         stripped = raw.strip()
         if indent == 0 and stripped.endswith(":"):
             flush_record()
+            flush_log_rule()
             section = stripped[:-1]
             in_directories = False
             in_context_pack = False
+            in_log_types = False
             continue
         if section == "profile" and indent == 2 and ":" in stripped:
             key, value = stripped.split(":", 1)
@@ -86,7 +112,17 @@ def load_profile(path: Path) -> Profile:
         elif section == "artifacts" and indent == 2 and stripped.startswith("types:"):
             _, value = stripped.split(":", 1)
             artifact_types = list(parse_scalar(value))
+        elif section == "logs":
+            if indent == 2 and stripped == "types:":
+                in_log_types = True
+            elif in_log_types and indent == 4 and stripped.endswith(":"):
+                flush_log_rule()
+                current_log_type = stripped[:-1]
+            elif current_log_type and indent >= 6 and ":" in stripped:
+                key, value = stripped.split(":", 1)
+                current_log_rule[key] = parse_scalar(value)
     flush_record()
+    flush_log_rule()
 
     context_pack = ContextPackRule(
         include=list(context_values.get("include", [])),
@@ -104,4 +140,18 @@ def load_profile(path: Path) -> Profile:
         write_rules=write_rules,
         context_pack=context_pack,
         artifact_types=artifact_types,
+        log_rules=log_rules,
     )
+
+
+def active_profile_path(scope_root: Path, profile_path: Path | None = None) -> Path:
+    if profile_path is not None:
+        return profile_path
+    snapshot = scope_root / ".llm-wiki" / PROFILE_SNAPSHOT_RELATIVE
+    if not snapshot.exists():
+        raise ValueError("active profile snapshot is missing: .llm-wiki/.meta/profile.yml")
+    return snapshot
+
+
+def load_active_profile(scope_root: Path, profile_path: Path | None = None) -> Profile:
+    return load_profile(active_profile_path(scope_root, profile_path))

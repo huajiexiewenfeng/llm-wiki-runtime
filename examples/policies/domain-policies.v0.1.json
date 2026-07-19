@@ -1,0 +1,22 @@
+{
+  "hr": {
+    "readable_by": []
+  },
+  "learning": {
+    "readable_by": [
+      "first_party"
+    ]
+  },
+  "ai-radar": {
+    "readable_by": [
+      "*"
+    ],
+    "trust_override": "external_untrusted",
+    "instruction_policy_override": "data_only"
+  },
+  "devops": {
+    "readable_by": [
+      "first_party"
+    ]
+  }
+}

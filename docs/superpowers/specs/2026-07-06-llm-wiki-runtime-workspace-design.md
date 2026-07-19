@@ -101,7 +101,7 @@ The runtime config may also record profile-level declines so home-scope domains 
 ```yaml
 profiles:
   hr:
-    default_storage_mode: home
+    storage_mode: home
     default_scope_id: hr-default
     enabled: false
     declined_at: 2026-07-06T10:30:00+08:00
@@ -239,6 +239,7 @@ core owns filesystem and index trust.
 - source registry writes
 - artifact index writes
 - append-only log writes
+- active profile snapshot writes and reads
 - deterministic fallback status
 
 Domain skills own:
@@ -382,6 +383,14 @@ hr-agent-copilot/
 ## Profile Contract
 
 Each domain skill declares its wiki access rules in `llm-wiki-profile.yml`.
+
+During `init-profile`, the runtime must snapshot the provided active profile into:
+
+```text
+.llm-wiki/.meta/profile.yml
+```
+
+Later `write-record` and `load-context-pack` commands read the active profile snapshot from the scope by default instead of depending on the original skill package path. This keeps an existing scope interpretable even if the skill is moved, upgraded, or uninstalled. If the snapshot is missing or does not match the primary profile in `.llm-wiki.yml`, the command should return a configuration fallback status instead of guessing read or write rules.
 
 The V0.1 profile shape has five sections:
 
@@ -622,11 +631,14 @@ The command should support caller filters:
 --glob domains/hr/candidates/**
 --record-type candidate_profile
 --ref candidate_id=zhang-san
+--policy data_only
 ```
 
 Filters can only narrow the profile read rules. They cannot expand access outside the active profile.
 
 Domain integration guides should require business skills to pass narrowing filters whenever the user intent is specific, such as a candidate ID, job ID, release ID, topic ID, or date range. Broad profile reads are allowed for small scopes but should not be the default for targeted questions.
+
+When the caller passes `--policy data_only`, `load-context-pack` must apply deterministic preprocessing to the returned content: scan the minimal risk terms, mark `sanitized`, return `risk_flags`, and preserve the effective `instruction_policy` in each context item's metadata. This policy only provides structured isolation and marking; it does not promise that an LLM can never be influenced by the text. The caller must still place these items in supporting context and avoid treating them as executable instructions.
 
 ### Privacy Semantics
 
@@ -711,10 +723,16 @@ The radar skill owns signal judgment, topic clustering, evaluation criteria, and
 
 ## Fallback Behavior
 
+`io_error`:
+
+- The runtime command started but failed because of filesystem, lock, or IO conditions.
+- Domain skill falls back normally.
+- The result may mention that the wiki backend was not used.
+
 `runtime_unavailable`:
 
-- Domain skill runs normally.
-- No wiki write is attempted.
+- The core/agent shell could not find or execute the runtime command.
+- Domain skill falls back normally.
 - The result may mention that the wiki backend was not used.
 
 `missing_config`:
@@ -776,3 +794,5 @@ The radar skill owns signal judgment, topic clustering, evaluation criteria, and
 29. Scope locks define timeout, stale-lock detection, and recovery behavior.
 30. Core-managed `.meta/**` data is excluded from context packs by default.
 31. Profile version compatibility and on-disk data migration are explicitly deferred beyond V0.1.
+32. `init-profile` snapshots the active profile to `.llm-wiki/.meta/profile.yml`, and later read/write commands use that snapshot by default.
+33. `load-context-pack --policy data_only` returns `sanitized`, `risk_flags`, and the effective `instruction_policy` so the upper core layer can isolate supporting context.

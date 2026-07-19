@@ -1,0 +1,18 @@
+[
+  {
+    "thread_id": "thread-recruiting-1",
+    "turn_id": "turn-jd",
+    "item_id": "item-jd",
+    "turn_order": 1,
+    "item_order": 1,
+    "text": "Title: Senior Java Developer\nResponsibilities: Build Spring Boot services.\nRequirements: 5+ years Java experience."
+  },
+  {
+    "thread_id": "thread-recruiting-1",
+    "turn_id": "turn-candidate",
+    "item_id": "item-candidate",
+    "turn_order": 2,
+    "item_order": 1,
+    "text": "Candidate Zhang San can be reached at test@example.com and scored 92."
+  }
+]

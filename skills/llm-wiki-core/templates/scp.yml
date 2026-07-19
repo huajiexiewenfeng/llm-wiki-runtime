@@ -1,0 +1,26 @@
+scp_version: v0.1
+
+skill:
+  id: example-skill
+  domain: example
+
+llm_wiki:
+  profile: example
+  fallback_mode: markdown
+
+trust:
+  level: internal_personal
+  source_type: user_local_data
+  instruction_policy: trusted_content
+
+query:
+  primary_domain: example
+  supports:
+    - domain: ai-radar
+      record_types: [tool_trend]
+      optional: true
+
+ingest:
+  produces:
+    - domain: example
+      record_type: example_record

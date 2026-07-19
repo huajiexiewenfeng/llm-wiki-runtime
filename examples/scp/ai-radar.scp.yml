@@ -1,0 +1,25 @@
+scp_version: v0.1
+
+skill:
+  id: ai-radar-newsroom
+  domain: ai-radar
+
+llm_wiki:
+  profile: ai-radar
+  fallback_mode: markdown
+
+trust:
+  level: external_untrusted
+  source_type: external_feed
+  instruction_policy: data_only
+
+query:
+  primary_domain: ai-radar
+  supports: []
+
+ingest:
+  produces:
+    - domain: ai-radar
+      record_type: tool_trend
+    - domain: ai-radar
+      record_type: learning_material

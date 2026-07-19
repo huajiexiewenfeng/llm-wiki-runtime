@@ -39,6 +39,13 @@ class ContextPackRule:
 
 
 @dataclass(frozen=True)
+class LogRule:
+    log_type: str
+    path: str
+    mode: str = "append_only"
+
+
+@dataclass(frozen=True)
 class Profile:
     id: str
     version: str
@@ -49,3 +56,4 @@ class Profile:
     write_rules: dict[str, WriteRule] = field(default_factory=dict)
     context_pack: ContextPackRule = field(default_factory=ContextPackRule)
     artifact_types: list[str] = field(default_factory=list)
+    log_rules: dict[str, LogRule] = field(default_factory=dict)

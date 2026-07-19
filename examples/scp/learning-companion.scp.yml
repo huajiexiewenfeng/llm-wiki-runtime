@@ -1,0 +1,28 @@
+scp_version: v0.1
+
+skill:
+  id: learning-companion
+  domain: learning
+
+llm_wiki:
+  profile: learning
+  fallback_mode: markdown
+
+trust:
+  level: internal_personal
+  source_type: user_local_data
+  instruction_policy: trusted_content
+
+query:
+  primary_domain: learning
+  supports:
+    - domain: ai-radar
+      record_types: [tool_trend, learning_material]
+      optional: true
+
+ingest:
+  produces:
+    - domain: learning
+      record_type: study_note
+    - domain: learning
+      record_type: learning_plan

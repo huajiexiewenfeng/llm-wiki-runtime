@@ -101,7 +101,7 @@ Runtime config 也可以记录 profile 级别的拒绝状态，让 home-scope do
 ```yaml
 profiles:
   hr:
-    default_storage_mode: home
+    storage_mode: home
     default_scope_id: hr-default
     enabled: false
     declined_at: 2026-07-06T10:30:00+08:00
@@ -239,6 +239,7 @@ core 负责文件系统和索引可信操作。
 - source registry 写入
 - artifact index 写入
 - append-only log 写入
+- active profile snapshot 写入和读取
 - 确定性的 fallback 状态
 
 Domain skill 负责：
@@ -382,6 +383,14 @@ hr-agent-copilot/
 ## Profile 契约
 
 每个 domain skill 通过 `llm-wiki-profile.yml` 声明自己的 wiki 接入规则。
+
+`init-profile` 初始化 scope 时，必须把传入的 active profile 快照到：
+
+```text
+.llm-wiki/.meta/profile.yml
+```
+
+后续 `write-record` 和 `load-context-pack` 默认读取 scope 内的 active profile snapshot，而不是重新依赖原 skill 包中的 `llm-wiki-profile.yml`。这样即使 skill 被移动、升级或卸载，已有 scope 仍然保留可解释的读写规则。若 snapshot 缺失或与 `.llm-wiki.yml` 中的 primary profile 不一致，命令应返回配置类 fallback status，而不是猜测读取规则。
 
 V0.1 的 profile 只包含五个部分：
 
@@ -622,11 +631,14 @@ V0.1 可以把这条 revision entry 存入 core 管理的 change log，例如：
 --glob domains/hr/candidates/**
 --record-type candidate_profile
 --ref candidate_id=zhang-san
+--policy data_only
 ```
 
 过滤条件只能缩小 profile read rules 允许的范围，不能扩大到 active profile 之外。
 
 Domain integration guide 应要求业务 skill 在用户意图明确时传入缩小范围的过滤条件，例如 candidate ID、job ID、release ID、topic ID 或日期范围。宽泛读取适合小 scope，但不应作为定向问题的默认方式。
+
+当调用方传入 `--policy data_only` 时，`load-context-pack` 必须对输出内容执行确定性预处理：扫描最小风险词、标记 `sanitized`、输出 `risk_flags`，并在每个 context item 的 metadata 中保留生效的 `instruction_policy`。该策略只负责结构化隔离和标记，不承诺 LLM 绝对不受文本影响；调用方仍必须把这些内容放在 supporting context，并避免把它们当作指令执行。
 
 ### 隐私语义
 
@@ -711,10 +723,16 @@ AI Radar skill 负责信号判断、主题聚类、评估标准和报告写作�
 
 ## 降级行为
 
+`io_error`：
+
+- Runtime 命令已启动，但文件系统、锁或 IO 失败。
+- Domain skill 正常降级运行。
+- 结果中可以提示本次没有使用 wiki backend。
+
 `runtime_unavailable`：
 
-- Domain skill 正常运行。
-- 不尝试写入 wiki。
+- Core/agent shell 找不到或无法执行 runtime 命令。
+- Domain skill 正常降级运行。
 - 结果中可以提示本次没有使用 wiki backend。
 
 `missing_config`：
@@ -776,3 +794,5 @@ AI Radar skill 负责信号判断、主题聚类、评估标准和报告写作�
 29. Scope lock 必须定义超时、stale lock 检测和恢复行为。
 30. Core-managed `.meta/**` 默认从 context pack 排除。
 31. Profile version 兼容和磁盘数据迁移明确延后到 V0.1 之后。
+32. `init-profile` 必须把 active profile 快照到 `.llm-wiki/.meta/profile.yml`，后续读写命令默认使用该 snapshot。
+33. `load-context-pack --policy data_only` 必须返回 `sanitized`、`risk_flags` 和生效 `instruction_policy`，供上层 core 做 supporting context 隔离。

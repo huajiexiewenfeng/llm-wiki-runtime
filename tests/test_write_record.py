@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from llm_wiki_runtime.runtime import copy_source, load_context_pack, write_record
+from llm_wiki_runtime.runtime import copy_source, init_profile, load_context_pack, write_record
 
 
 def write_profile(path: Path) -> None:
@@ -46,17 +46,48 @@ def write_profile(path: Path) -> None:
     )
 
 
-def test_write_record_create_only_refuses_overwrite(tmp_path):
+def test_write_record_create_only_refuses_overwrite_and_returns_existing(tmp_path):
     wiki_root = tmp_path / ".llm-wiki"
     wiki_root.mkdir()
     profile = tmp_path / "llm-wiki-profile.yml"
     write_profile(profile)
-    content = tmp_path / "report.md"
+    content = tmp_path / "content.md"
     content.write_text("first", encoding="utf-8")
-    write_record(tmp_path, profile, "screening_report", {"run_id": "run-001"}, {}, content)
+    first = write_record(tmp_path, profile, "screening_report", {"run_id": "run-001"}, {}, content)
     content.write_text("second", encoding="utf-8")
-    with pytest.raises(FileExistsError):
-        write_record(tmp_path, profile, "screening_report", {"run_id": "run-001"}, {}, content)
+    duplicate = write_record(tmp_path, profile, "screening_report", {"run_id": "run-001"}, {}, content)
+
+    assert first["status"] == "ok"
+    assert duplicate["status"] == "already_exists"
+    assert duplicate["checksum"] == first["checksum"]
+    target = wiki_root / "domains/hr/screenings/run-001/report.md"
+    assert target.read_text(encoding="utf-8") == "first"
+
+
+def test_write_record_uses_scope_profile_snapshot_when_profile_path_missing(tmp_path):
+    profile = tmp_path / "llm-wiki-profile.yml"
+    write_profile(profile)
+    init_profile(tmp_path, profile, "local", "hr-default")
+
+    wiki_root = tmp_path / ".llm-wiki"
+    source = tmp_path / "resume.pdf"
+    source.write_bytes(b"resume")
+    source_payload = copy_source(wiki_root, source, "sources/originals/hr/resume.pdf", "resume_pdf")
+
+    content = tmp_path / "profile.md"
+    content.write_text("candidate profile", encoding="utf-8")
+
+    payload = write_record(
+        tmp_path,
+        None,
+        "candidate_profile",
+        {"candidate_id": "zhang-san"},
+        {"source_id": source_payload["source_id"]},
+        content,
+    )
+
+    assert payload["status"] == "ok"
+    assert payload["path"] == "domains/hr/candidates/zhang-san/profile.md"
 
 
 def test_write_record_update_allowed_records_meta_change_log(tmp_path):

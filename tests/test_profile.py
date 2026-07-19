@@ -1,3 +1,5 @@
+import pytest
+
 from llm_wiki_runtime.profile import load_profile
 
 
@@ -40,3 +42,56 @@ def test_load_profile_parses_records_and_context(tmp_path):
     assert profile.write_rules["candidate_profile"].mode == "update_allowed"
     assert profile.context_pack.include == ["domains/hr/**"]
     assert profile.artifact_types == ["screening_report"]
+
+
+def test_load_profile_parses_append_only_log_contract(tmp_path):
+    profile_path = tmp_path / "llm-wiki-profile.yml"
+    profile_path.write_text(
+        "\n".join(
+            [
+                "profile:",
+                "  id: hr",
+                "  version: v0.1",
+                "logs:",
+                "  types:",
+                "    hr_jd_import:",
+                "      path: logs/hr-jd-import.jsonl",
+                "      mode: append_only",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    profile = load_profile(profile_path)
+
+    assert profile.log_rules["hr_jd_import"].path == "logs/hr-jd-import.jsonl"
+    assert profile.log_rules["hr_jd_import"].mode == "append_only"
+
+
+@pytest.mark.parametrize(
+    ("path_value", "mode_value", "message"),
+    [
+        ("", "append_only", "log path is required"),
+        ("logs/hr-jd-import.jsonl", "update_allowed", "unsupported log mode"),
+    ],
+)
+def test_load_profile_rejects_invalid_log_contract(tmp_path, path_value, mode_value, message):
+    profile_path = tmp_path / "llm-wiki-profile.yml"
+    profile_path.write_text(
+        "\n".join(
+            [
+                "profile:",
+                "  id: hr",
+                "  version: v0.1",
+                "logs:",
+                "  types:",
+                "    hr_jd_import:",
+                f"      path: {path_value}",
+                f"      mode: {mode_value}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=message):
+        load_profile(profile_path)
