@@ -4,6 +4,8 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { listedNoticePackages, runtimePackageNames, validatePackageInventory } from "./build-validation.mjs";
+
 const webRoot = path.dirname(fileURLToPath(import.meta.url));
 const assetRoot = path.resolve(webRoot, "..", "llm_wiki_runtime", "assets", "graph");
 const entries = [
@@ -18,17 +20,6 @@ const forbiddenPatterns = [
   /https?:\/\//,
   /["'`]\s*\/\/[^\s"'`]+/,
 ];
-
-function packageNameFromInput(input) {
-  const match = input.match(/[\\/]node_modules[\\/](@[^\\/]+[\\/])?([^\\/]+)/);
-  return match ? `${match[1] || ""}${match[2]}`.replace(/\\/g, "/") : null;
-}
-
-function listedNoticePackages(notices) {
-  return new Map(
-    [...notices.matchAll(/^\|\s*`([^`]+)`\s*\|\s*`?([^|`\s]+)`?\s*\|/gm)].map((match) => [match[1], match[2]]),
-  );
-}
 
 function assertOffline(label, text) {
   for (const pattern of forbiddenPatterns) {
@@ -45,6 +36,12 @@ async function checksum(filePath) {
 
 const sourceTexts = await Promise.all(entries.map(([, entry]) => readFile(entry, "utf8")));
 sourceTexts.forEach((text, index) => assertOffline(entries[index][1], text));
+
+const [packageJson, packageLock, notices] = await Promise.all([
+  readFile(path.join(webRoot, "package.json"), "utf8").then(JSON.parse),
+  readFile(path.join(webRoot, "package-lock.json"), "utf8").then(JSON.parse),
+  readFile(path.join(assetRoot, "THIRD_PARTY_NOTICES.md"), "utf8"),
+]);
 
 const results = [];
 for (const [name, entry] of entries) {
@@ -65,16 +62,13 @@ for (const [name, entry] of entries) {
   );
 }
 
-const notices = await readFile(path.join(assetRoot, "THIRD_PARTY_NOTICES.md"), "utf8");
 const noticePackages = listedNoticePackages(notices);
-const bundledPackages = new Set(
-  results.flatMap((result) => Object.keys(result.metafile.inputs).map(packageNameFromInput).filter(Boolean)),
-);
-for (const packageName of [...bundledPackages].sort()) {
-  if (!noticePackages.has(packageName)) {
-    throw new Error(`runtime bundle package is missing from notices: ${packageName}`);
-  }
-}
+validatePackageInventory({
+  notices: noticePackages,
+  packageJson,
+  packageLock,
+  runtimePackageNames: runtimePackageNames(results.map((result) => result.metafile)),
+});
 
 const assets = {};
 for (const [name] of entries) {

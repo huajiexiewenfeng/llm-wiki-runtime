@@ -3,6 +3,7 @@ import test from "node:test";
 import Graph, { MultiDirectedGraph } from "graphology";
 
 import {
+  edgeKeysForPath,
   filterVisibleNodeIds,
   neighborsWithinDepth,
   shortestPath,
@@ -55,6 +56,16 @@ test("state helpers preserve directed multi-graphs and return stable neighbor or
   assert.deepEqual(graph.export(), before);
 });
 
+test("edgeKeysForPath deterministically highlights every directed edge in a multi-graph path", () => {
+  const graph = addNodes(new MultiDirectedGraph(), ["a", "b", "c"]);
+  graph.addDirectedEdgeWithKey("ab-z", "a", "b", { type: "reference" });
+  graph.addDirectedEdgeWithKey("ab-a", "a", "b", { type: "reference" });
+  graph.addDirectedEdgeWithKey("ba", "b", "a", { type: "reference" });
+  graph.addDirectedEdgeWithKey("bc", "b", "c", { type: "reference" });
+
+  assert.deepEqual([...edgeKeysForPath(graph, ["a", "b", "c"])], ["ab-a", "ab-z", "bc"]);
+});
+
 test("shortestPath returns null for missing or disconnected endpoints", () => {
   const graph = addNodes(new Graph(), ["a", "b", "c"]);
   graph.addEdge("a", "b");
@@ -90,4 +101,11 @@ test("filterVisibleNodeIds accepts absent filters and does not mutate graph attr
 
   assert.deepEqual([...filterVisibleNodeIds(graph, "", null, null)], ["a", "b"]);
   assert.deepEqual(graph.export(), before);
+});
+
+test("filterVisibleNodeIds uses deterministic Unicode case normalization", () => {
+  const graph = new Graph();
+  graph.addNode("istanbul", { search_text: "ISTANBUL", type: "place" });
+
+  assert.deepEqual([...filterVisibleNodeIds(graph, "istanbul", null, null)], ["istanbul"]);
 });

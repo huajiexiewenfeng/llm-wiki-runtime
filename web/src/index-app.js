@@ -31,9 +31,9 @@ function indexApp() {
   root.append(main);
 
   function render() {
-    const query = search.value.trim().toLocaleLowerCase();
+    const query = search.value.trim().toLowerCase();
     list.replaceChildren();
-    for (const domain of domains.filter((item) => `${item.id} ${item.display_name || ""}`.toLocaleLowerCase().includes(query))) {
+    for (const domain of domains.filter((item) => `${item.id} ${item.display_name || ""}`.toLowerCase().includes(query))) {
       const row = document.createElement("article");
       row.style.cssText = "border:1px solid #cbd5e1;border-radius:6px;padding:14px;background:#fff";
       const link = document.createElement("a");

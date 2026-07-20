@@ -1,7 +1,8 @@
 import Graph from "graphology";
 import Sigma from "sigma";
 
-import { filterVisibleNodeIds, neighborsWithinDepth, shortestPath } from "./graph-state.js";
+import { resolveLocalFileAction } from "./graph-file-actions.js";
+import { edgeKeysForPath, filterVisibleNodeIds, neighborsWithinDepth, shortestPath } from "./graph-state.js";
 
 const TYPE_COLORS = ["#0f766e", "#2563eb", "#b45309", "#be123c", "#6d28d9", "#047857"];
 
@@ -225,19 +226,21 @@ function graphApp() {
       copy.type = "button";
       copy.textContent = "Copy relative path";
       copy.addEventListener("click", () => copyText(item.path));
+      const localFileAction = resolveLocalFileAction(window.location.href, item.path);
       const absolute = document.createElement("button");
       absolute.type = "button";
       absolute.textContent = "Copy absolute path";
-      absolute.addEventListener("click", () => copyText(`${window.__LLM_WIKI_SCOPE_PATH__ || ""}${item.path}`));
+      absolute.disabled = !localFileAction;
+      if (localFileAction) {
+        absolute.addEventListener("click", () => copyText(localFileAction.absolutePath));
+      }
       const open = document.createElement("button");
       open.type = "button";
       open.textContent = "Open local file";
-      open.addEventListener("click", () => {
-        const candidate = String(window.__LLM_WIKI_FILE_URL__ || "");
-        if (candidate.startsWith("file:")) {
-          window.open(candidate, "_blank", "noopener");
-        }
-      });
+      open.disabled = !localFileAction;
+      if (localFileAction) {
+        open.addEventListener("click", () => window.open(localFileAction.absoluteUrl, "_blank", "noopener"));
+      }
       actions.append(copy, absolute, open);
     }
   }
@@ -310,10 +313,7 @@ function graphApp() {
     pathNodes = new Set(path || []);
     pathEdges = new Set();
     if (path) {
-      for (let index = 1; index < path.length; index += 1) {
-        const edge = graph.edge(path[index - 1], path[index]);
-        if (edge) pathEdges.add(edge);
-      }
+      pathEdges = edgeKeysForPath(graph, path);
       status.textContent = `Shortest path: ${path.join(" -> ")}`;
     } else {
       status.textContent = "No path found.";

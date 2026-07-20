@@ -76,6 +76,14 @@ export function shortestPath(graph, source, target) {
   return null;
 }
 
+export function edgeKeysForPath(graph, path) {
+  const edgeKeys = [];
+  for (let index = 1; index < path.length; index += 1) {
+    edgeKeys.push(...graph.outEdges(path[index - 1], path[index]).sort(compareIds));
+  }
+  return new Set(edgeKeys);
+}
+
 function hasEnabledIncidentEdge(graph, nodeId, edgeTypes) {
   const edgeIds = graph.edges(nodeId);
   if (edgeIds.length === 0) {
@@ -85,7 +93,7 @@ function hasEnabledIncidentEdge(graph, nodeId, edgeTypes) {
 }
 
 export function filterVisibleNodeIds(graph, query, nodeTypes, edgeTypes) {
-  const normalizedQuery = String(query ?? "").trim().toLocaleLowerCase();
+  const normalizedQuery = String(query ?? "").trim().toLowerCase();
   const selectedNodeTypes = selectedValues(nodeTypes);
   const selectedEdgeTypes = selectedValues(edgeTypes);
 
@@ -94,7 +102,7 @@ export function filterVisibleNodeIds(graph, query, nodeTypes, edgeTypes) {
       .sort(compareIds)
       .filter((nodeId) => {
         const attributes = graph.getNodeAttributes(nodeId);
-        const searchText = String(attributes.search_text ?? "").toLocaleLowerCase();
+        const searchText = String(attributes.search_text ?? "").toLowerCase();
         return (
           searchText.includes(normalizedQuery) &&
           (selectedNodeTypes === null || selectedNodeTypes.has(attributes.type)) &&
