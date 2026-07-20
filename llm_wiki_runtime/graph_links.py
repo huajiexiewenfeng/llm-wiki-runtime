@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from pathlib import PurePosixPath
@@ -44,8 +45,9 @@ def build_domain_edges(collected: CollectedDomain) -> tuple[tuple[GraphEdge, ...
         if node.type not in {"record", "document"}:
             continue
         frontmatter = collected.frontmatter_by_node.get(node.id, {})
+        explicit_reference_fields = collected.reference_fields_by_node.get(node.id, ())
         for field, value in sorted(frontmatter.items()):
-            if not _is_reference_field(field, value):
+            if not _is_reference_field(field, value, explicit_reference_fields):
                 continue
             for identity in _reference_values(value):
                 _add_structured_reference(edges, diagnostics, node, field, identity, collected.identity_index)
@@ -71,7 +73,7 @@ def build_domain_edges(collected: CollectedDomain) -> tuple[tuple[GraphEdge, ...
         )
         for (source, target, edge_type), parts in sorted(edges.items(), key=lambda item: stable_edge_id(*item[0]))
     )
-    return graph_edges, tuple(sorted(diagnostics, key=_diagnostic_key))
+    return graph_edges, tuple(sorted(set(diagnostics), key=_diagnostic_key))
 
 
 def resolve_wikilink(
@@ -95,10 +97,6 @@ def resolve_wikilink(
 
     exact = _with_markdown_suffixes(_join_path(source, cleaned), cleaned)
     result = _resolve_candidates(exact, root, path_index)
-    if result.status != "unresolved":
-        return result
-    root_candidates = _with_markdown_suffixes(_join_directory(root, cleaned), cleaned)
-    result = _resolve_candidates(root_candidates, root, path_index)
     if result.status != "unresolved":
         return result
     filename = _filename_with_suffix(cleaned)
@@ -186,13 +184,35 @@ def _add_link_result(
         )
 
 
-def _is_reference_field(field: str, value: object) -> bool:
-    return field.endswith("_id") or field.endswith("_ids") or isinstance(value, tuple)
+def _is_reference_field(field: str, value: object, explicit_reference_fields: tuple[str, ...]) -> bool:
+    if field.endswith("_ids"):
+        return _is_reference_sequence(value)
+    if field.endswith("_id"):
+        return _reference_scalar(value) is not None
+    return field in explicit_reference_fields and (
+        _reference_scalar(value) is not None or _is_reference_sequence(value)
+    )
 
 
 def _reference_values(value: object) -> tuple[str, ...]:
     values = value if isinstance(value, tuple) else (value,)
-    return tuple(sorted({str(item) for item in values if item is not None and not isinstance(item, (tuple, list, dict))}))
+    return tuple(sorted({identity for item in values if (identity := _reference_scalar(item)) is not None}))
+
+
+def _is_reference_sequence(value: object) -> bool:
+    return isinstance(value, tuple) and all(item is None or _reference_scalar(item) is not None for item in value)
+
+
+def _reference_scalar(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str) or isinstance(value, int):
+        return str(value)
+    if isinstance(value, float) and math.isfinite(value):
+        return str(value)
+    return None
 
 
 def _iter_wikilink_targets(body: str):
@@ -243,35 +263,61 @@ def _clean_markdown_destination(target: str) -> str | None:
         return None
     value = target.strip()
     if value.startswith("<"):
-        closing = value.find(">")
+        closing = _find_unescaped(value, ">", 1)
         if closing < 0:
             return None
-        value = value[1:closing]
+        destination, title = value[1:closing], value[closing + 1 :]
     else:
-        value = _first_unescaped_word(value)
-    value = value.split("#", 1)[0].split("?", 1)[0]
-    value = _decode_markdown_path(value)
-    return _validate_local_target(value)
+        split = _split_markdown_destination(value)
+        if split is None:
+            return None
+        destination, title = split
+    if not _valid_markdown_title(title):
+        return None
+    destination = destination.split("#", 1)[0].split("?", 1)[0]
+    return _validate_local_target(_decode_markdown_path(destination))
 
 
-def _first_unescaped_word(value: str) -> str:
-    result: list[str] = []
-    escaped = False
-    for char in value:
-        if char.isspace() and not escaped:
-            break
-        result.append(char)
-        escaped = char == "\\" and not escaped
-        if char != "\\":
-            escaped = False
-    return "".join(result)
+def _split_markdown_destination(value: str) -> tuple[str, str] | None:
+    for index, char in enumerate(value):
+        if char.isspace() and not _is_escaped(value, index):
+            return value[:index], value[index:]
+    return value, ""
+
+
+def _valid_markdown_title(value: str) -> bool:
+    value = value.strip()
+    if not value:
+        return True
+    opening = value[0]
+    closing = {"\"": "\"", "'": "'", "(": ")"}.get(opening)
+    if closing is None or not value.endswith(closing):
+        return False
+    end = _find_unescaped(value, closing, 1)
+    return end == len(value) - 1
+
+
+def _find_unescaped(value: str, expected: str, start: int) -> int:
+    for index in range(start, len(value)):
+        if value[index] == expected and not _is_escaped(value, index):
+            return index
+    return -1
+
+
+def _is_escaped(value: str, index: int) -> bool:
+    backslashes = 0
+    cursor = index - 1
+    while cursor >= 0 and value[cursor] == "\\":
+        backslashes += 1
+        cursor -= 1
+    return backslashes % 2 == 1
 
 
 def _decode_markdown_path(value: str) -> str:
     result: list[str] = []
     cursor = 0
     while cursor < len(value):
-        if value[cursor] == "\\" and cursor + 1 < len(value) and value[cursor + 1] in "()[]<>":
+        if value[cursor] == "\\" and cursor + 1 < len(value) and value[cursor + 1] in "\\ ()[]<>":
             result.append(value[cursor + 1])
             cursor += 2
         else:

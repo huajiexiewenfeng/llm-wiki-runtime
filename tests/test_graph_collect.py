@@ -263,7 +263,7 @@ def test_declared_required_references_select_sources_without_becoming_record_ide
     wiki_root = tmp_path / ".llm-wiki"
     _write(
         wiki_root / "domains/hr/candidates/c-1/profile.md",
-        "---\ncandidate_id: c-1\nsource_ref: source-1\n---\n",
+        "---\nsource_ref: source-1\n---\n",
     )
     _write(
         wiki_root / "sources/registry.json",
@@ -287,8 +287,27 @@ def test_declared_required_references_select_sources_without_becoming_record_ide
 
     collected = collect_domain_nodes(wiki_root, profile, _adapter(), "hr")
     source = next(node for node in collected.nodes if node.type == "source")
+    record = next(node for node in collected.nodes if node.type == "record")
+    from llm_wiki_runtime.graph_links import build_domain_edges
+
+    edges, diagnostics = build_domain_edges(collected)
 
     assert collected.identity_index["source-1"] == (source.id,)
+    assert collected.reference_fields_by_node == {record.id: ("source_ref",)}
+    assert [(edge.source, edge.target) for edge in edges if edge.type == "REFERENCED"] == [(record.id, source.id)]
+    assert diagnostics == ()
+    with pytest.raises(TypeError):
+        collected.reference_fields_by_node[record.id] = ()
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(True, "true"), (False, "false"), (1, "1"), (1.5, "1.5"), (None, None), (float("inf"), None), (float("nan"), None)],
+)
+def test_collection_identity_values_use_only_finite_supported_scalars(value, expected):
+    from llm_wiki_runtime.graph_collect import _identity_value
+
+    assert _identity_value(value) == expected
 
 
 def test_required_reference_sequences_select_all_scalar_sources(tmp_path):

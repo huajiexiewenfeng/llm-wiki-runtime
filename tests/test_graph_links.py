@@ -26,6 +26,7 @@ def _collected(
     *,
     files: dict[str, tuple[str, dict[str, object]]],
     identities: dict[str, tuple[str, ...]] | None = None,
+    reference_fields_by_node: dict[str, tuple[str, ...]] | None = None,
 ) -> CollectedDomain:
     scope = _node("scope", ".meta/profile.yml", "Scope")
     domain = _node("domain", DOMAIN_ROOT, "Human Resources")
@@ -40,6 +41,7 @@ def _collected(
         body_by_node={by_path[path].id: body for path, (body, _) in files.items()},
         identity_index=identities or {},
         path_index={path: (node.id,) for path, node in by_path.items()},
+        reference_fields_by_node=reference_fields_by_node or {},
     )
 
 
@@ -81,7 +83,7 @@ def test_registered_and_structured_edges_have_portable_deterministic_evidence():
     assert diagnostics == ()
 
 
-def test_references_accept_scalar_tuple_and_required_reference_shapes_without_self_edges():
+def test_references_accept_suffix_shapes_and_explicit_required_reference_fields():
     target = _node("source", "sources/originals/hr/resume.pdf", "source-1")
     files = {
         "domains/hr/candidates/c-1/profile.md": (
@@ -90,9 +92,11 @@ def test_references_accept_scalar_tuple_and_required_reference_shapes_without_se
         ),
     }
     collected = _collected(files=files, identities={"source-1": (target.id,)})
+    record = next(node for node in collected.nodes if node.type == "record")
     collected = CollectedDomain(
         nodes=(*collected.nodes, target), diagnostics=(), frontmatter_by_node=collected.frontmatter_by_node,
         body_by_node=collected.body_by_node, identity_index=collected.identity_index, path_index=collected.path_index,
+        reference_fields_by_node={record.id: ("custom_ref",)},
     )
 
     edges, diagnostics = build_domain_edges(collected)
@@ -104,6 +108,52 @@ def test_references_accept_scalar_tuple_and_required_reference_shapes_without_se
         "frontmatter-reference:related_id",
         "frontmatter-reference:related_ids",
     )
+    assert diagnostics == ()
+
+
+def test_structured_references_ignore_tags_unmapped_fields_and_wrong_suffix_shapes():
+    target = _node("source", "sources/originals/hr/resume.pdf", "source-1")
+    collected = _collected(
+        files={
+            "domains/hr/candidates/c-1/profile.md": (
+                "",
+                {
+                    "tags": ("source-1",),
+                    "custom_ref": "source-1",
+                    "related_id": ("source-1",),
+                    "related_ids": "source-1",
+                },
+            ),
+        },
+        identities={"source-1": (target.id,)},
+    )
+    collected = CollectedDomain(
+        nodes=(*collected.nodes, target), diagnostics=(), frontmatter_by_node=collected.frontmatter_by_node,
+        body_by_node=collected.body_by_node, identity_index=collected.identity_index, path_index=collected.path_index,
+    )
+
+    edges, diagnostics = build_domain_edges(collected)
+
+    assert not [edge for edge in edges if edge.type == "REFERENCED"]
+    assert diagnostics == ()
+
+
+def test_structured_reference_booleans_use_task_three_identity_normalization():
+    target = _node("source", "sources/originals/hr/true.pdf", "true")
+    collected = _collected(
+        files={"domains/hr/candidates/c-1/profile.md": ("", {"approved_id": True})},
+        identities={"true": (target.id,)},
+    )
+    collected = CollectedDomain(
+        nodes=(*collected.nodes, target), diagnostics=(), frontmatter_by_node=collected.frontmatter_by_node,
+        body_by_node=collected.body_by_node, identity_index=collected.identity_index, path_index=collected.path_index,
+    )
+
+    edges, diagnostics = build_domain_edges(collected)
+
+    assert [(edge.source, edge.target) for edge in edges if edge.type == "REFERENCED"] == [
+        (next(node for node in collected.nodes if node.type == "record").id, target.id)
+    ]
     assert diagnostics == ()
 
 
@@ -131,6 +181,22 @@ def test_missing_ambiguous_and_self_structured_references_are_diagnosed_without_
     assert "missing" not in " ".join(item.message for item in diagnostics)
 
 
+def test_identical_structured_reference_diagnostics_are_deduplicated():
+    record = _node("record", "domains/hr/candidates/c-1/profile.md")
+    collected = CollectedDomain(
+        nodes=(_node("scope", ".meta/profile.yml"), _node("domain", DOMAIN_ROOT), record),
+        diagnostics=(),
+        frontmatter_by_node={record.id: {"first_id": "missing", "second_id": "missing"}},
+        body_by_node={record.id: ""},
+        identity_index={},
+        path_index={record.path: (record.id,)},
+    )
+
+    _, diagnostics = build_domain_edges(collected)
+
+    assert [(item.code, item.path) for item in diagnostics] == [("unresolved_structured_reference", record.path)]
+
+
 def test_wikilink_resolution_follows_the_six_step_domain_algorithm():
     paths = {
         "domains/hr/a/source.md": ("source",),
@@ -138,7 +204,6 @@ def test_wikilink_resolution_follows_the_six_step_domain_algorithm():
         "domains/hr/shared.md": ("shared",),
         "domains/hr/jobs/j-1.md": ("job",),
         "domains/hr/topics/topic.md": ("topic",),
-        "domains/hr/folder/index.md": ("folder",),
         "domains/hr/unique.md": ("unique",),
     }
     index = {path: ids for path, ids in paths.items()}
@@ -148,7 +213,6 @@ def test_wikilink_resolution_follows_the_six_step_domain_algorithm():
     assert resolve_wikilink(source, "../shared#Section", DOMAIN_ROOT, index).path == "domains/hr/shared.md"
     assert resolve_wikilink(source, "jobs/j-1", DOMAIN_ROOT, index).path == "domains/hr/jobs/j-1.md"
     assert resolve_wikilink(source, "topic", DOMAIN_ROOT, index).path == "domains/hr/topics/topic.md"
-    assert resolve_wikilink(source, "folder", DOMAIN_ROOT, index).path == "domains/hr/folder/index.md"
     assert resolve_wikilink(source, "UNIQUE", DOMAIN_ROOT, index).path == "domains/hr/unique.md"
 
 
@@ -165,6 +229,17 @@ def test_wikilinks_reject_ambiguous_external_anchor_escape_and_cross_domain_targ
         assert resolve_wikilink(source, target, DOMAIN_ROOT, index).path is None
 
 
+def test_wikilink_filename_search_does_not_prefer_a_domain_root_match_over_ambiguity():
+    source = "domains/hr/a/source.md"
+    index = {
+        source: ("source",),
+        "domains/hr/topic.md": ("root",),
+        "domains/hr/topics/topic.md": ("nested",),
+    }
+
+    assert resolve_wikilink(source, "topic", DOMAIN_ROOT, index).status == "ambiguous"
+
+
 def test_markdown_links_resolve_relative_destinations_and_reject_nonlocal_forms():
     source = "domains/hr/a/source.md"
     index = {
@@ -177,6 +252,30 @@ def test_markdown_links_resolve_relative_destinations_and_reject_nonlocal_forms(
     assert resolve_markdown_link(source, "../shared.md?view=1#part", DOMAIN_ROOT, index).path == "domains/hr/shared.md"
     assert resolve_markdown_link(source, "..\\shared.md", DOMAIN_ROOT, index).path == "domains/hr/shared.md"
     for target in ("https://example.test/x", "//cdn.example.test/x", "mailto:a@b.test", "data:text/plain,x", "javascript:x", "#anchor", "../../outside.md", "domains/ops/a.md"):
+        assert resolve_markdown_link(source, target, DOMAIN_ROOT, index).path is None
+
+
+def test_markdown_links_decode_escaped_spaces_and_preserve_escaped_parentheses():
+    source = "domains/hr/a/source.md"
+    index = {
+        source: ("source",),
+        "domains/hr/a/file name.md": ("space",),
+        "domains/hr/a/folder/peer.md": ("backslash",),
+        "domains/hr/a/guide(draft).md": ("parentheses",),
+    }
+
+    assert resolve_markdown_link(source, r"file\ name.md", DOMAIN_ROOT, index).path == "domains/hr/a/file name.md"
+    assert resolve_markdown_link(source, r"folder\\peer.md", DOMAIN_ROOT, index).path == "domains/hr/a/folder/peer.md"
+    assert resolve_markdown_link(source, r"guide\(draft\).md", DOMAIN_ROOT, index).path == "domains/hr/a/guide(draft).md"
+
+
+def test_markdown_links_accept_only_strict_optional_titles():
+    source = "domains/hr/a/source.md"
+    index = {source: ("source",), "domains/hr/a/peer.md": ("peer",)}
+
+    for target in ('peer.md "title"', "peer.md 'title'", "peer.md (title)", '<peer.md> "title"'):
+        assert resolve_markdown_link(source, target, DOMAIN_ROOT, index).path == "domains/hr/a/peer.md"
+    for target in ("peer.md arbitrary", 'peer.md "unterminated', "<peer.md> unexpected"):
         assert resolve_markdown_link(source, target, DOMAIN_ROOT, index).path is None
 
 

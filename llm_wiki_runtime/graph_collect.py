@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 from typing import Mapping, TypeAlias
@@ -39,6 +40,7 @@ class CollectedDomain:
     body_by_node: Mapping[str, str]
     identity_index: Mapping[str, tuple[str, ...]]
     path_index: Mapping[str, tuple[str, ...]]
+    reference_fields_by_node: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "nodes", tuple(sorted(self.nodes, key=lambda node: node.id)))
@@ -51,6 +53,7 @@ class CollectedDomain:
         object.__setattr__(self, "body_by_node", _freeze_mapping(self.body_by_node))
         object.__setattr__(self, "identity_index", _freeze_index(self.identity_index))
         object.__setattr__(self, "path_index", _freeze_index(self.path_index))
+        object.__setattr__(self, "reference_fields_by_node", _freeze_index(self.reference_fields_by_node))
 
 
 def discover_domains(wiki_root: Path, profile: Profile) -> DomainDiscovery:
@@ -134,6 +137,7 @@ def collect_domain_nodes(
     body_by_node: dict[str, str] = {}
     identity_candidates: dict[str, set[str]] = {}
     path_candidates: dict[str, set[str]] = {}
+    reference_fields_by_node: dict[str, tuple[str, ...]] = {}
     templates = _compile_write_rule_templates(profile.write_rules, diagnostics)
     referenced_values: set[str] = set()
 
@@ -169,6 +173,8 @@ def collect_domain_nodes(
         nodes.append(node)
         frontmatter_by_node[node.id] = frontmatter
         body_by_node[node.id] = text[body_offset:]
+        if matching_rule is not None:
+            reference_fields_by_node[node.id] = tuple(sorted(set(matching_rule.required_refs)))
         path_candidates.setdefault(logical_path, set()).add(node.id)
         _index_owned_frontmatter_identities(frontmatter, owned_fields, node.id, identity_candidates)
         if matching is not None:
@@ -200,6 +206,7 @@ def collect_domain_nodes(
         body_by_node=body_by_node,
         identity_index={key: tuple(sorted(value)) for key, value in identity_candidates.items()},
         path_index={key: tuple(sorted(value)) for key, value in path_candidates.items()},
+        reference_fields_by_node=reference_fields_by_node,
     )
 
 
@@ -441,6 +448,8 @@ def _identity_value(value: object) -> str | None:
         return None
     if isinstance(value, bool):
         return "true" if value else "false"
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
     return str(value)
 
 
