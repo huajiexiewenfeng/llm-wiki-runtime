@@ -1,4 +1,5 @@
 from dataclasses import FrozenInstanceError
+from types import MappingProxyType
 
 import pytest
 
@@ -40,14 +41,48 @@ def test_graph_contracts_are_frozen():
         diagnostic.message = "Changed"
 
 
-def test_stable_ids_use_readable_prefix_and_canonical_inputs():
-    assert stable_node_id("domain", "domains/hr.md") == stable_node_id("domain", "domains/hr.md")
-    assert stable_node_id("domain", "domains/hr.md").startswith("node_")
-    assert len(stable_node_id("domain", "domains/hr.md")) == 21
+def test_graph_contracts_deeply_freeze_caller_owned_collections():
+    metadata = {"labels": ["internal"]}
+    evidence = {"method": "wikilink", "path": "domains/hr/a.md"}
+    node = _node("hr")
+    node = GraphNode(**{**node.__dict__, "metadata": metadata})
+    edge = GraphEdge("edge", "hr", "ops", "depends_on", "depends", (evidence,), metadata)
+
+    metadata["labels"].append("changed")
+    metadata["new"] = "changed"
+    evidence["method"] = "changed"
+
+    assert node.metadata == {"labels": ("internal",)}
+    assert edge.metadata == {"labels": ("internal",)}
+    assert edge.evidence == ({"method": "wikilink", "path": "domains/hr/a.md"},)
+    assert isinstance(node.metadata, MappingProxyType)
+    with pytest.raises(TypeError):
+        node.metadata["new"] = "value"
+    with pytest.raises(AttributeError):
+        node.metadata["labels"].append("value")
+    with pytest.raises(TypeError):
+        edge.evidence[0]["method"] = "changed"
+
+
+def test_stable_node_id_uses_domain_type_and_path_with_record_prefix():
+    first = stable_node_id("hr", "record", "domains/hr/a.md")
+
+    assert first == stable_node_id("hr", "record", "domains\\hr\\a.md")
+    assert first.startswith("record:")
+    assert len(first) == len("record:") + 16
+    assert first != stable_node_id("learning", "record", "domains/hr/a.md")
+    assert first != stable_node_id("hr", "document", "domains/hr/a.md")
+
+
+def test_stable_ids_use_collision_safe_framing():
+    assert stable_edge_id("a\x1fb", "c", "d") != stable_edge_id("a", "b\x1fc", "d")
+    assert stable_node_id("hr\x1frecord", "record", "domains/hr/a.md") != stable_node_id(
+        "hr", "record\x1frecord", "domains/hr/a.md"
+    )
 
     assert stable_edge_id("hr", "ops", "depends_on") == stable_edge_id("hr", "ops", "depends_on")
-    assert stable_edge_id("hr", "ops", "depends_on").startswith("edge_")
-    assert len(stable_edge_id("hr", "ops", "depends_on")) == 21
+    assert stable_edge_id("hr", "ops", "depends_on").startswith("edge:")
+    assert len(stable_edge_id("hr", "ops", "depends_on")) == len("edge:") + 16
     assert stable_edge_id("hr", "ops", "depends_on") != stable_edge_id("ops", "hr", "depends_on")
 
 
@@ -65,6 +100,9 @@ def test_domain_graph_to_dict_is_deterministically_sorted():
     )
 
     assert graph.to_dict() == {
+        "schema_version": "v0.1",
+        "domain": {},
+        "stats": {},
         "nodes": [
             {
                 "id": "hr",
@@ -120,6 +158,42 @@ def test_domain_graph_to_dict_is_deterministically_sorted():
             {"severity": "warning", "code": "z", "path": "domains/z.md", "message": "z message"},
         ],
     }
+
+
+def test_graph_serializers_canonicalize_nested_data_without_leaking_references():
+    node = _node("hr", tags=("z", "a"))
+    edge = GraphEdge(
+        "edge",
+        "hr",
+        "ops",
+        "depends_on",
+        "depends",
+        (
+            {"z": "last", "a": "first"},
+            {"path": "domains/hr/a.md", "method": "wikilink"},
+        ),
+        {"z": ["last"], "a": ["first"]},
+    )
+    graph = DomainGraph(
+        nodes=(node,),
+        edges=(edge,),
+        domain={"z": "last", "a": "first"},
+        stats={"z": 2, "a": 1},
+    )
+
+    assert node.to_dict()["metadata"] == {"a": ["later", 1, None], "z": True}
+    assert edge.to_dict()["evidence"] == [
+        {"a": "first", "z": "last"},
+        {"method": "wikilink", "path": "domains/hr/a.md"},
+    ]
+    rendered = graph.to_dict()
+    assert list(rendered) == ["schema_version", "domain", "stats", "nodes", "edges", "diagnostics"]
+    assert rendered["domain"] == {"a": "first", "z": "last"}
+    assert rendered["stats"] == {"a": 1, "z": 2}
+    rendered["nodes"][0]["metadata"]["a"].append("changed")
+    rendered["edges"][0]["evidence"][0]["a"] = "changed"
+    assert node.to_dict()["metadata"] == {"a": ["later", 1, None], "z": True}
+    assert edge.to_dict()["evidence"][0] == {"a": "first", "z": "last"}
 
 
 @pytest.mark.parametrize(

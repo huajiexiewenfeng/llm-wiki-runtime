@@ -56,6 +56,8 @@ def _line_content(line: str) -> str:
 
 
 def _parse_value(value: str) -> FrontmatterValue:
+    if value.startswith(("'", '"')):
+        return _parse_scalar(value)
     if value.startswith("["):
         return _parse_flow_list(value)
     if value.startswith(("{", "&", "*", "!", "|", ">")) or any(character in value for character in "{}[]"):

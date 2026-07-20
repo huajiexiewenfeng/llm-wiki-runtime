@@ -72,3 +72,9 @@ def test_parse_frontmatter_coerces_only_supported_scalar_values(value, expected)
     metadata, _ = parse_frontmatter(f"---\nvalue: {value}\n---\n")
 
     assert metadata == {"value": expected}
+
+
+def test_parse_frontmatter_allows_brackets_and_braces_inside_quoted_scalars():
+    metadata, _ = parse_frontmatter('---\ntitle: "Draft [internal] {review}"\n---\n')
+
+    assert metadata == {"title": "Draft [internal] {review}"}
