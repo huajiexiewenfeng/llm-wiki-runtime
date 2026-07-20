@@ -7,6 +7,7 @@ from pathlib import Path
 
 from . import __version__
 from .config import resolve_config
+from .graph_export import export_graphs
 from .ingest import prepare_excerpt, write_excerpt_snapshot
 from .mapping import load_ingest_mapping, validate_ingest_mapping
 from .profile import load_profile
@@ -50,6 +51,12 @@ def build_parser() -> argparse.ArgumentParser:
     resolve.add_argument("--cwd", default=".")
     resolve.add_argument("--profile")
     resolve.add_argument("--scope")
+
+    graph_export = sub.add_parser("graph-export")
+    graph_export.add_argument("--cwd", default=".")
+    graph_export.add_argument("--profile")
+    graph_export.add_argument("--scope")
+    graph_export.add_argument("--domain")
 
     init_home_parser = sub.add_parser("init-home")
     init_home_parser.add_argument("--home", required=True)
@@ -133,20 +140,22 @@ def main(argv: list[str] | None = None) -> int:
             return emit({"status": "ok", "version": __version__})
         if args.command == "resolve-config":
             result = resolve_config(cwd=args.cwd, profile=args.profile, scope=args.scope)
-            payload = {
-                "status": result.status,
-                "enabled": result.enabled,
-                "scope_root": str(result.scope_root),
-                "wiki_root": str(result.wiki_root) if result.wiki_root else None,
-                "wiki_home": str(result.wiki_home) if result.wiki_home else None,
-                "storage_mode": result.storage_mode,
-                "scope_id": result.scope_id,
-                "primary_profile": result.primary_profile,
-                "scope_type": result.scope_type,
-                "privacy": result.privacy,
-                "fallback_mode": result.fallback_mode,
-            }
+            payload = _config_payload(result)
             return emit(payload, 0 if result.status == "enabled" else 1)
+        if args.command == "graph-export":
+            result = resolve_config(cwd=args.cwd, profile=args.profile, scope=args.scope)
+            if not result.enabled:
+                return emit(_config_payload(result), 2)
+            try:
+                payload = export_graphs(result.scope_root, args.domain)
+            except TimeoutError:
+                return emit({"status": "scope_busy", "errors": ["scope_lock_timeout"]}, 3)
+            except OSError:
+                return emit({"status": "io_error", "errors": ["graph_export_io_error"]}, 3)
+            except (TypeError, ValueError):
+                return emit({"status": "validation_error", "errors": ["graph_export_validation_error"]}, 2)
+            exit_code = 0 if payload["status"] == "ok" else 1 if payload["status"] == "partial_failure" else 2
+            return emit(payload, exit_code)
         if args.command == "init-home":
             return emit(init_home(Path(args.home)))
         if args.command == "init-profile":
@@ -302,6 +311,22 @@ def main(argv: list[str] | None = None) -> int:
         )
     except Exception as exc:
         return emit({"status": "unexpected_error", "error": str(exc)}, 4)
+
+
+def _config_payload(result) -> dict:
+    return {
+        "status": result.status,
+        "enabled": result.enabled,
+        "scope_root": str(result.scope_root),
+        "wiki_root": str(result.wiki_root) if result.wiki_root else None,
+        "wiki_home": str(result.wiki_home) if result.wiki_home else None,
+        "storage_mode": result.storage_mode,
+        "scope_id": result.scope_id,
+        "primary_profile": result.primary_profile,
+        "scope_type": result.scope_type,
+        "privacy": result.privacy,
+        "fallback_mode": result.fallback_mode,
+    }
 
 
 if __name__ == "__main__":

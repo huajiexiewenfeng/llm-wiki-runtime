@@ -115,3 +115,13 @@ def test_context_pack_host_override_wins_over_caller_policy(tmp_path):
     )
 
     assert payload["items"][0]["instruction_policy"] == "data_only"
+
+
+def test_context_pack_forces_meta_exclusion_even_when_explicitly_included(tmp_path):
+    wiki_root = tmp_path / ".llm-wiki"
+    (wiki_root / ".meta/graph").mkdir(parents=True)
+    (wiki_root / ".meta/graph/graph.html").write_text("secret aggregate", encoding="utf-8")
+
+    payload = load_context_pack(wiki_root, ["**"], [], 30, 4000)
+
+    assert payload["items"] == []
