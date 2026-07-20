@@ -413,15 +413,17 @@ def _frontmatter_reference_values(
         if key in owned_fields:
             continue
         if key.endswith("_id") or key in required_refs:
-            identity = _identity_value(value)
-            if identity is not None:
-                values.add(identity)
-        elif key.endswith("_ids") and isinstance(value, list):
-            for item in value:
-                identity = _identity_value(item)
-                if identity is not None:
-                    values.add(identity)
+            values.update(_reference_identity_values(value))
+        elif key.endswith("_ids"):
+            values.update(_reference_identity_values(value))
     return values
+
+
+def _reference_identity_values(value: object) -> set[str]:
+    if isinstance(value, (list, tuple)):
+        return {identity for item in value if (identity := _identity_value(item)) is not None}
+    identity = _identity_value(value)
+    return {identity} if identity is not None else set()
 
 
 def _identity_value(value: object) -> str | None:
@@ -503,6 +505,9 @@ def _collect_artifacts(
         if not isinstance(artifact_id, str) or not artifact_id or not isinstance(path, str):
             diagnostics.append(GraphDiagnostic("warning", "invalid_artifact_index_entry", "artifacts/index.json", "Artifact index entry was ignored"))
             continue
+        logical_path = _safe_registry_path(path, "artifacts/index.json", "invalid_artifact_index_entry", diagnostics)
+        if logical_path is None:
+            continue
         declared_domain = entry.get("domain")
         if declared_domain != domain_id:
             if declared_domain is not None or not single_domain_scope:
@@ -515,9 +520,6 @@ def _collect_artifacts(
                     "Legacy artifact was assigned to the only discovered domain",
                 )
             )
-        logical_path = _safe_registry_path(path, "artifacts/index.json", "invalid_artifact_index_entry", diagnostics)
-        if logical_path is None:
-            continue
         node = _node(domain_id, "artifact", _nonempty_string(entry.get("artifact_type"), "artifact"), artifact_id, logical_path)
         if node.id in seen_nodes:
             diagnostics.append(

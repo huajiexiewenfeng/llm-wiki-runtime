@@ -191,6 +191,34 @@ def test_artifacts_require_domain_except_one_domain_legacy_scope(tmp_path):
     assert [node.to_dict() for node in reordered.nodes] == [node.to_dict() for node in collected.nodes]
 
 
+def test_artifact_entries_are_validated_before_out_of_domain_filtering(tmp_path):
+    from llm_wiki_runtime.graph_collect import collect_domain_nodes
+
+    wiki_root = tmp_path / ".llm-wiki"
+    (wiki_root / "domains/hr").mkdir(parents=True)
+    (wiki_root / "domains/ops").mkdir(parents=True)
+    entries = [
+        {"artifact_id": "", "domain": "ops", "path": "artifacts/missing-id.md", "payload": "secret-shape"},
+        {"artifact_id": "unsafe", "domain": "ops", "path": "../secret.md", "payload": "secret-path"},
+        {"artifact_id": "other-domain", "domain": "ops", "path": "artifacts/ops.md", "payload": "secret-valid"},
+        {"artifact_id": "current-domain", "domain": "hr", "path": "artifacts/hr.md"},
+    ]
+    _write(wiki_root / "artifacts/index.json", json.dumps({"artifacts": entries}))
+    profile = _profile(directories=["domains/hr/candidates", "domains/ops/records"])
+
+    collected = collect_domain_nodes(wiki_root, profile, _adapter(), "hr")
+    _write(wiki_root / "artifacts/index.json", json.dumps({"artifacts": list(reversed(entries))}))
+    reordered = collect_domain_nodes(wiki_root, profile, _adapter(), "hr")
+
+    artifacts = [node for node in collected.nodes if node.type == "artifact"]
+    assert [node.label for node in artifacts] == ["current-domain"]
+    assert "other-domain" not in collected.identity_index
+    assert [item.code for item in collected.diagnostics].count("invalid_artifact_index_entry") == 2
+    assert [item.to_dict() for item in collected.diagnostics] == [item.to_dict() for item in reordered.diagnostics]
+    assert "secret-" not in json.dumps([node.to_dict() for node in collected.nodes])
+    assert "secret-" not in json.dumps([item.to_dict() for item in collected.diagnostics])
+
+
 def test_duplicate_identity_is_preserved_and_collection_is_deterministic(tmp_path):
     from llm_wiki_runtime.graph_collect import collect_domain_nodes
 
@@ -261,6 +289,53 @@ def test_declared_required_references_select_sources_without_becoming_record_ide
     source = next(node for node in collected.nodes if node.type == "source")
 
     assert collected.identity_index["source-1"] == (source.id,)
+
+
+def test_required_reference_sequences_select_all_scalar_sources(tmp_path):
+    from llm_wiki_runtime.graph_collect import collect_domain_nodes
+
+    wiki_root = tmp_path / ".llm-wiki"
+    _write(
+        wiki_root / "domains/hr/candidates/c-1/profile.md",
+        "---\ncandidate_id: c-1\nsource_ref: source-1\nsource_ids: [source-2, source-3]\nattachments: [source-4, source-5]\n---\n",
+    )
+    _write(
+        wiki_root / "sources/registry.json",
+        json.dumps(
+            {
+                "sources": [
+                    {"source_id": source_id, "path": f"sources/shared/{source_id}.pdf"}
+                    for source_id in ("source-1", "source-2", "source-3", "source-4", "source-5")
+                ]
+            }
+        ),
+    )
+    profile = _profile()
+    profile = Profile(
+        **{
+            **profile.__dict__,
+            "write_rules": {
+                "candidate_profile": WriteRule(
+                    record_type="candidate_profile",
+                    path="domains/hr/candidates/{candidate_id}/profile.md",
+                    mode="update_allowed",
+                    required_vars=["candidate_id"],
+                    required_refs=["source_ref", "source_ids", "attachments"],
+                )
+            },
+        }
+    )
+
+    collected = collect_domain_nodes(wiki_root, profile, _adapter(), "hr")
+
+    assert {node.label for node in collected.nodes if node.type == "source"} == {
+        "source-1",
+        "source-2",
+        "source-3",
+        "source-4",
+        "source-5",
+    }
+    assert all(len(collected.identity_index[source_id]) == 1 for source_id in ("source-1", "source-2", "source-3", "source-4", "source-5"))
 
 
 def test_template_variable_is_a_record_owned_identity_without_frontmatter_copy(tmp_path):
