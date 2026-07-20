@@ -32,6 +32,7 @@ class GraphNode:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "tags", tuple(self.tags))
+        object.__setattr__(self, "path", normalize_scope_path(self.path))
         object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
         object.__setattr__(self, "x", _validate_coordinate(self.x, "x"))
         object.__setattr__(self, "y", _validate_coordinate(self.y, "y"))
@@ -45,7 +46,7 @@ class GraphNode:
             "summary": self.summary,
             "status": self.status,
             "tags": sorted(self.tags),
-            "path": self.path,
+            "path": _validate_stored_scope_path(self.path),
             "metadata": _metadata_to_dict(self.metadata),
             "x": _validate_coordinate(self.x, "x"),
             "y": _validate_coordinate(self.y, "y"),
@@ -86,11 +87,15 @@ class GraphDiagnostic:
     path: str
     message: str
 
+    def __post_init__(self) -> None:
+        # An empty path identifies a scope-level diagnostic; all other paths name a file in scope.
+        object.__setattr__(self, "path", _normalize_diagnostic_path(self.path))
+
     def to_dict(self) -> dict[str, str]:
         return {
             "severity": self.severity,
             "code": self.code,
-            "path": self.path,
+            "path": _validate_stored_diagnostic_path(self.path),
             "message": self.message,
         }
 
@@ -227,8 +232,27 @@ def _freeze_evidence(item: Mapping[str, str]) -> Mapping[str, str]:
     for key, value in item.items():
         if not isinstance(key, str) or not isinstance(value, str):
             raise ValueError("edge evidence keys and values must be strings")
-        frozen[key] = value
+        frozen[key] = normalize_scope_path(value) if key == "path" else value
     return MappingProxyType(frozen)
+
+
+def _normalize_diagnostic_path(path: str) -> str:
+    if path == "":
+        return path
+    return normalize_scope_path(path)
+
+
+def _validate_stored_scope_path(path: object) -> str:
+    normalized = normalize_scope_path(path)
+    if path != normalized:
+        raise ValueError("graph paths must be normalized scope-relative POSIX paths")
+    return normalized
+
+
+def _validate_stored_diagnostic_path(path: object) -> str:
+    if path == "":
+        return path
+    return _validate_stored_scope_path(path)
 
 
 def _metadata_to_dict(metadata: GraphMetadata) -> dict[str, GraphScalar | list[GraphScalar]]:
@@ -239,4 +263,16 @@ def _metadata_to_dict(metadata: GraphMetadata) -> dict[str, GraphScalar | list[G
 
 
 def _evidence_to_list(evidence: tuple[Mapping[str, str], ...]) -> list[dict[str, str]]:
-    return [dict(sorted(item.items())) for item in sorted(evidence, key=lambda item: tuple(sorted(item.items())))]
+    validated = [_validate_stored_evidence(item) for item in evidence]
+    return [dict(sorted(item.items())) for item in sorted(validated, key=lambda item: tuple(sorted(item.items())))]
+
+
+def _validate_stored_evidence(item: Mapping[str, str]) -> dict[str, str]:
+    if not isinstance(item, Mapping):
+        raise ValueError("edge evidence must be mappings")
+    validated: dict[str, str] = {}
+    for key, value in item.items():
+        if not isinstance(key, str) or not isinstance(value, str):
+            raise ValueError("edge evidence keys and values must be strings")
+        validated[key] = _validate_stored_scope_path(value) if key == "path" else value
+    return validated

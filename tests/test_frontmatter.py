@@ -74,6 +74,18 @@ def test_parse_frontmatter_coerces_only_supported_scalar_values(value, expected)
     assert metadata == {"value": expected}
 
 
+@pytest.mark.parametrize("value", ["1e999", "-1e999"])
+def test_parse_frontmatter_rejects_non_finite_float_scalars(value):
+    with pytest.raises(ValueError):
+        parse_frontmatter(f"---\nvalue: {value}\n---\n")
+
+
+@pytest.mark.parametrize("value", ["1e999", "-1e999"])
+def test_parse_frontmatter_rejects_non_finite_float_flow_list_items(value):
+    with pytest.raises(ValueError):
+        parse_frontmatter(f"---\nvalues: [1.25, {value}]\n---\n")
+
+
 def test_parse_frontmatter_allows_brackets_and_braces_inside_quoted_scalars():
     metadata, _ = parse_frontmatter('---\ntitle: "Draft [internal] {review}"\n---\n')
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from typing import TypeAlias
 
@@ -131,7 +132,10 @@ def _parse_scalar(value: str) -> FrontmatterScalar:
     if _INTEGER_RE.fullmatch(value):
         return int(value)
     if _FLOAT_RE.fullmatch(value):
-        return float(value)
+        parsed = float(value)
+        if not math.isfinite(parsed):
+            raise ValueError("frontmatter floats must be finite")
+        return parsed
     if value.startswith(("&", "*", "!", "|", ">")) or ":" in value or "#" in value:
         raise ValueError("unsupported plain scalar")
     return value

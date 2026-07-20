@@ -88,6 +88,96 @@ def test_graph_node_serialization_refuses_non_finite_coordinates():
         node.to_dict()
 
 
+def test_graph_node_normalizes_its_scope_relative_path_at_construction():
+    node = GraphNode(
+        id="hr",
+        type="domain",
+        subtype="team",
+        label="hr",
+        summary="summary",
+        status="active",
+        tags=(),
+        path="domains\\hr\\profile.md",
+    )
+
+    assert node.path == "domains/hr/profile.md"
+    assert node.to_dict()["path"] == "domains/hr/profile.md"
+
+
+@pytest.mark.parametrize("path", ["/etc/passwd", "C:\\secret.md", "domains/../secret.md"])
+def test_graph_node_rejects_unsafe_scope_relative_paths(path):
+    with pytest.raises(ValueError):
+        GraphNode(
+            id="hr",
+            type="domain",
+            subtype="team",
+            label="hr",
+            summary="summary",
+            status="active",
+            tags=(),
+            path=path,
+        )
+
+
+def test_graph_node_serialization_refuses_mutated_unsafe_path():
+    node = _node("hr")
+    object.__setattr__(node, "path", "C:\\secret.md")
+
+    with pytest.raises(ValueError):
+        node.to_dict()
+
+
+def test_graph_diagnostic_normalizes_non_empty_path_and_allows_empty_scope_path():
+    diagnostic = GraphDiagnostic("warning", "missing", "domains\\hr\\profile.md", "Missing owner")
+    scope_diagnostic = GraphDiagnostic("warning", "missing", "", "Missing domain metadata")
+
+    assert diagnostic.path == "domains/hr/profile.md"
+    assert diagnostic.to_dict()["path"] == "domains/hr/profile.md"
+    assert scope_diagnostic.to_dict()["path"] == ""
+
+
+@pytest.mark.parametrize("path", ["/etc/passwd", "C:\\secret.md", "domains/../secret.md"])
+def test_graph_diagnostic_rejects_unsafe_non_empty_paths(path):
+    with pytest.raises(ValueError):
+        GraphDiagnostic("warning", "missing", path, "Missing owner")
+
+
+def test_graph_diagnostic_serialization_refuses_mutated_unsafe_path():
+    diagnostic = GraphDiagnostic("warning", "missing", "domains/hr.md", "Missing owner")
+    object.__setattr__(diagnostic, "path", "../secret.md")
+
+    with pytest.raises(ValueError):
+        diagnostic.to_dict()
+
+
+def test_graph_edge_normalizes_evidence_path_without_changing_other_strings():
+    edge = GraphEdge(
+        "edge",
+        "hr",
+        "ops",
+        "depends_on",
+        "depends",
+        ({"path": "domains\\hr\\profile.md", "reference": "C:\\literal"},),
+    )
+
+    assert edge.evidence[0] == {"path": "domains/hr/profile.md", "reference": "C:\\literal"}
+    assert edge.to_dict()["evidence"] == [{"path": "domains/hr/profile.md", "reference": "C:\\literal"}]
+
+
+@pytest.mark.parametrize("path", ["/etc/passwd", "C:\\secret.md", "domains/../secret.md"])
+def test_graph_edge_rejects_unsafe_evidence_paths(path):
+    with pytest.raises(ValueError):
+        GraphEdge("edge", "hr", "ops", "depends_on", "depends", ({"path": path},))
+
+
+def test_graph_edge_serialization_refuses_mutated_unsafe_evidence_path():
+    edge = GraphEdge("edge", "hr", "ops", "depends_on", "depends", ({"path": "domains/hr.md"},))
+    object.__setattr__(edge, "evidence", ({"path": "../secret.md"},))
+
+    with pytest.raises(ValueError):
+        edge.to_dict()
+
+
 def test_graph_contracts_deeply_freeze_caller_owned_collections():
     metadata = {"labels": ["internal"]}
     evidence = {"method": "wikilink", "path": "domains/hr/a.md"}
