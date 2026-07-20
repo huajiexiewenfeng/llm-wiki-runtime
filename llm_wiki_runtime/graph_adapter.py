@@ -79,13 +79,17 @@ def default_graph_adapter(domain_id: str) -> GraphAdapter:
 
 
 def load_graph_adapter(path: Path, expected_domain_id: str) -> GraphAdapter:
+    return _parse_graph_adapter_text(path.read_text(encoding="utf-8"), expected_domain_id)
+
+
+def _parse_graph_adapter_text(text: str, expected_domain_id: str) -> GraphAdapter:
     expected_domain_id = validate_slug(expected_domain_id)
     top_level: dict[str, str] = {}
     defaults: dict[str, object] = {}
     subtype_map: dict[str, str] = {}
     section: str | None = None
 
-    for line_number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    for line_number, raw in enumerate(text.splitlines(), start=1):
         if not raw.strip() or raw.lstrip().startswith("#"):
             continue
         if "\t" in raw:
@@ -164,6 +168,7 @@ def snapshot_graph_adapter(profile_path: Path, wiki_root: Path, domain_id: str) 
         target_path.unlink(missing_ok=True)
         return default_graph_adapter(domain_id)
 
-    adapter = load_graph_adapter(source_path, domain_id)
-    atomic_write_text(target_path, source_path.read_text(encoding="utf-8"))
+    source_text = source_path.read_text(encoding="utf-8")
+    adapter = _parse_graph_adapter_text(source_text, domain_id)
+    atomic_write_text(target_path, source_text)
     return adapter

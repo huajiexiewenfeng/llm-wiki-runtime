@@ -1,6 +1,8 @@
+from pathlib import Path
+
 import pytest
 
-from llm_wiki_runtime.graph_adapter import load_graph_adapter
+from llm_wiki_runtime.graph_adapter import load_graph_adapter, snapshot_graph_adapter
 
 
 def test_graph_adapter_parses_only_declarative_fields(tmp_path):
@@ -52,3 +54,28 @@ def test_graph_adapter_rejects_invalid_declarative_shape(tmp_path, contents, mes
 
     with pytest.raises(ValueError, match=message):
         load_graph_adapter(path, "hr")
+
+
+def test_snapshot_graph_adapter_writes_the_single_validated_source_text(tmp_path, monkeypatch):
+    profile = tmp_path / "llm-wiki-profile.yml"
+    source_path = tmp_path / "graph-adapter.yml"
+    validated_text = "version: v0.1\ndomain_id: hr\ndisplay_name: Validated\n"
+    changed_text = "version: v0.1\ndomain_id: hr\ndisplay_name: Changed\n"
+    source_path.write_text(validated_text, encoding="utf-8")
+    original_read_text = Path.read_text
+    source_read_count = 0
+
+    def changing_read_text(path, *args, **kwargs):
+        nonlocal source_read_count
+        if path == source_path:
+            source_read_count += 1
+            return validated_text if source_read_count == 1 else changed_text
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", changing_read_text)
+
+    snapshot_graph_adapter(profile, tmp_path / ".llm-wiki", "hr")
+
+    snapshot_path = tmp_path / ".llm-wiki" / ".meta" / "graph-adapters" / "hr.yml"
+    assert snapshot_path.read_text(encoding="utf-8") == validated_text
+    assert source_read_count == 1
