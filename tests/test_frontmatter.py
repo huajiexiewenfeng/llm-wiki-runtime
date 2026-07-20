@@ -78,3 +78,15 @@ def test_parse_frontmatter_allows_brackets_and_braces_inside_quoted_scalars():
     metadata, _ = parse_frontmatter('---\ntitle: "Draft [internal] {review}"\n---\n')
 
     assert metadata == {"title": "Draft [internal] {review}"}
+
+
+@pytest.mark.parametrize("value", [r'"escaped\t"', r'"escaped\u0009"'])
+def test_parse_frontmatter_rejects_double_quoted_scalars_that_decode_to_tabs(value):
+    with pytest.raises(ValueError):
+        parse_frontmatter(f"---\nvalue: {value}\n---\n")
+
+
+@pytest.mark.parametrize("value", [r'"escaped\t"', r'"escaped\u0009"'])
+def test_parse_frontmatter_rejects_flow_list_items_that_decode_to_tabs(value):
+    with pytest.raises(ValueError):
+        parse_frontmatter(f"---\ntags: [safe, {value}]\n---\n")

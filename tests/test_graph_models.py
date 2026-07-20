@@ -41,6 +41,53 @@ def test_graph_contracts_are_frozen():
         diagnostic.message = "Changed"
 
 
+@pytest.mark.parametrize(
+    "coordinate",
+    [True, False, float("nan"), float("inf"), float("-inf"), "1.5", None, object()],
+)
+@pytest.mark.parametrize("field", ["x", "y"])
+def test_graph_node_rejects_non_finite_or_non_numeric_coordinates(field, coordinate):
+    with pytest.raises(ValueError):
+        GraphNode(
+            id="hr",
+            type="domain",
+            subtype="team",
+            label="hr",
+            summary="summary",
+            status="active",
+            tags=(),
+            path="domains/hr.md",
+            **{field: coordinate},
+        )
+
+
+@pytest.mark.parametrize(("x", "y"), [(3, -2), (1.5, -2.75)])
+def test_graph_node_serializes_finite_integer_and_float_coordinates(x, y):
+    node = GraphNode(
+        id="hr",
+        type="domain",
+        subtype="team",
+        label="hr",
+        summary="summary",
+        status="active",
+        tags=(),
+        path="domains/hr.md",
+        x=x,
+        y=y,
+    )
+
+    assert node.to_dict()["x"] == x
+    assert node.to_dict()["y"] == y
+
+
+def test_graph_node_serialization_refuses_non_finite_coordinates():
+    node = _node("hr")
+    object.__setattr__(node, "x", float("nan"))
+
+    with pytest.raises(ValueError):
+        node.to_dict()
+
+
 def test_graph_contracts_deeply_freeze_caller_owned_collections():
     metadata = {"labels": ["internal"]}
     evidence = {"method": "wikilink", "path": "domains/hr/a.md"}

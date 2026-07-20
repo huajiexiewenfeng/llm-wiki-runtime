@@ -33,6 +33,8 @@ class GraphNode:
     def __post_init__(self) -> None:
         object.__setattr__(self, "tags", tuple(self.tags))
         object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
+        object.__setattr__(self, "x", _validate_coordinate(self.x, "x"))
+        object.__setattr__(self, "y", _validate_coordinate(self.y, "y"))
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -45,8 +47,8 @@ class GraphNode:
             "tags": sorted(self.tags),
             "path": self.path,
             "metadata": _metadata_to_dict(self.metadata),
-            "x": self.x,
-            "y": self.y,
+            "x": _validate_coordinate(self.x, "x"),
+            "y": _validate_coordinate(self.y, "y"),
             "search_text": self.search_text,
         }
 
@@ -206,6 +208,16 @@ def _validate_scalar(value: object) -> GraphScalar:
     if isinstance(value, float) and math.isfinite(value):
         return value
     raise ValueError("graph values must be finite JSON scalars")
+
+
+def _validate_coordinate(value: object, name: str) -> int | float:
+    if isinstance(value, bool):
+        raise ValueError(f"graph node {name} coordinate must be a finite JSON number")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and math.isfinite(value):
+        return value
+    raise ValueError(f"graph node {name} coordinate must be a finite JSON number")
 
 
 def _freeze_evidence(item: Mapping[str, str]) -> Mapping[str, str]:

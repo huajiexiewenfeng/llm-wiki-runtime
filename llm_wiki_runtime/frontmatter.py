@@ -142,7 +142,7 @@ def _parse_double_quoted(value: str) -> str:
         parsed = json.loads(value)
     except json.JSONDecodeError as error:
         raise ValueError("invalid double-quoted scalar") from error
-    if not isinstance(parsed, str) or "\n" in parsed or "\r" in parsed:
+    if not isinstance(parsed, str) or any(character in parsed for character in "\n\r\t"):
         raise ValueError("double-quoted scalar must be a single line string")
     return parsed
 
