@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import runtime_config_path
+from .graph_adapter import snapshot_graph_adapter
 from .io import atomic_write_json, atomic_write_text, sha256_file
 from .locking import ScopeLock
 from .paths import ensure_under_root, render_logical_path
@@ -296,6 +297,7 @@ def init_profile(scope_root: Path, profile_path: Path, storage_mode: str, scope_
         old_text = snapshot_path.read_text(encoding="utf-8") if snapshot_path.exists() else None
         new_text = profile_path.read_text(encoding="utf-8")
         atomic_write_text(snapshot_path, new_text)
+        snapshot_graph_adapter(profile_path, wiki_root, profile.id)
         if old_text is not None and old_text != new_text:
             append_profile_snapshot_log(wiki_root, profile.id)
         return {"status": "ok", "profile": profile.id, "wiki_root": str(wiki_root)}
