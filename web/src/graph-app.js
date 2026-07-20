@@ -1,5 +1,6 @@
 import Graph from "graphology";
 import Sigma from "sigma";
+import { EdgeLineProgram, NodeCircleProgram } from "sigma/rendering";
 
 import { resolveLocalFileAction } from "./graph-file-actions.js";
 import { edgeKeysForPath, filterVisibleNodeIds, neighborsWithinDepth, shortestPath } from "./graph-state.js";
@@ -201,7 +202,25 @@ function graphApp() {
   actions.className = "lw-detail-actions";
   details.append(pathControls, status, actions);
 
-  const renderer = new Sigma(graph, canvas, { renderEdgeLabels: false, zIndex: true });
+  const nodeProgramClasses = Object.fromEntries(
+    uniqueValues(payload.nodes ?? [], "type").map((type) => [type, NodeCircleProgram]),
+  );
+  const edgeProgramClasses = Object.fromEntries(
+    uniqueValues(payload.edges ?? [], "type").map((type) => [type, EdgeLineProgram]),
+  );
+  const renderer = new Sigma(graph, canvas, {
+    edgeProgramClasses,
+    nodeProgramClasses,
+    renderEdgeLabels: false,
+    stagePadding: 128,
+    zIndex: true,
+  });
+  Object.defineProperty(window, "__LLM_WIKI_GRAPH_RENDERER__", {
+    configurable: true,
+    enumerable: false,
+    value: renderer,
+    writable: false,
+  });
   let selectedNode = null;
   let selectedItem = null;
   let pathNodes = new Set();
@@ -298,6 +317,10 @@ function graphApp() {
     pathNodes = new Set();
     pathEdges = new Set();
     search.value = "";
+    depth.value = "1";
+    pathSource.value = "";
+    pathTarget.value = "";
+    status.textContent = "";
     nodeTypes.clear();
     edgeTypes.clear();
     uniqueValues(payload.nodes ?? [], "type").forEach((value) => nodeTypes.add(value));
