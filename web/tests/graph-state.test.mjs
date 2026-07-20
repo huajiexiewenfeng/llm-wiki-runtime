@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import Graph, { MultiDirectedGraph } from "graphology";
+import Graph, { MultiDirectedGraph, MultiUndirectedGraph } from "graphology";
 
 import {
   edgeKeysForPath,
@@ -56,14 +56,34 @@ test("state helpers preserve directed multi-graphs and return stable neighbor or
   assert.deepEqual(graph.export(), before);
 });
 
-test("edgeKeysForPath deterministically highlights every directed edge in a multi-graph path", () => {
+test("edgeKeysForPath highlights an incoming-only edge found by undirected path exploration", () => {
+  const graph = addNodes(new MultiDirectedGraph(), ["a", "b"]);
+  graph.addDirectedEdgeWithKey("ba", "b", "a", { type: "reference" });
+
+  assert.deepEqual(shortestPath(graph, "a", "b"), ["a", "b"]);
+  assert.deepEqual([...edgeKeysForPath(graph, ["a", "b"])], ["ba"]);
+});
+
+test("edgeKeysForPath deterministically highlights parallel directed edges in both directions", () => {
   const graph = addNodes(new MultiDirectedGraph(), ["a", "b", "c"]);
   graph.addDirectedEdgeWithKey("ab-z", "a", "b", { type: "reference" });
   graph.addDirectedEdgeWithKey("ab-a", "a", "b", { type: "reference" });
-  graph.addDirectedEdgeWithKey("ba", "b", "a", { type: "reference" });
+  graph.addDirectedEdgeWithKey("ba-z", "b", "a", { type: "reference" });
+  graph.addDirectedEdgeWithKey("ba-a", "b", "a", { type: "reference" });
   graph.addDirectedEdgeWithKey("bc", "b", "c", { type: "reference" });
 
-  assert.deepEqual([...edgeKeysForPath(graph, ["a", "b", "c"])], ["ab-a", "ab-z", "bc"]);
+  assert.deepEqual(
+    [...edgeKeysForPath(graph, ["a", "b", "c"])],
+    ["ab-a", "ab-z", "ba-a", "ba-z", "bc"],
+  );
+});
+
+test("edgeKeysForPath highlights every parallel undirected edge", () => {
+  const graph = addNodes(new MultiUndirectedGraph(), ["a", "b"]);
+  graph.addUndirectedEdgeWithKey("ab-z", "a", "b", { type: "reference" });
+  graph.addUndirectedEdgeWithKey("ab-a", "a", "b", { type: "reference" });
+
+  assert.deepEqual([...edgeKeysForPath(graph, ["a", "b"])], ["ab-a", "ab-z"]);
 });
 
 test("shortestPath returns null for missing or disconnected endpoints", () => {

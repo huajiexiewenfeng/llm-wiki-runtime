@@ -79,7 +79,7 @@ export function shortestPath(graph, source, target) {
 export function edgeKeysForPath(graph, path) {
   const edgeKeys = [];
   for (let index = 1; index < path.length; index += 1) {
-    edgeKeys.push(...graph.outEdges(path[index - 1], path[index]).sort(compareIds));
+    edgeKeys.push(...graph.edges(path[index - 1], path[index]).sort(compareIds));
   }
   return new Set(edgeKeys);
 }
