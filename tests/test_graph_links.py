@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from llm_wiki_runtime.graph_collect import CollectedDomain
-from llm_wiki_runtime.graph_links import build_domain_edges, resolve_markdown_link, resolve_wikilink
+from llm_wiki_runtime.graph_links import (
+    _iter_markdown_targets,
+    build_domain_edges,
+    resolve_markdown_link,
+    resolve_wikilink,
+)
 from llm_wiki_runtime.graph_models import GraphNode, stable_node_id
 
 
@@ -277,6 +282,15 @@ def test_markdown_links_accept_only_strict_optional_titles():
         assert resolve_markdown_link(source, target, DOMAIN_ROOT, index).path == "domains/hr/a/peer.md"
     for target in ("peer.md arbitrary", 'peer.md "unterminated', "<peer.md> unexpected"):
         assert resolve_markdown_link(source, target, DOMAIN_ROOT, index).path is None
+
+
+def test_markdown_scanner_pairs_only_matching_label_delimiters():
+    assert list(_iter_markdown_targets("[[not-a-link]] ![image](peer.md)")) == []
+    assert list(_iter_markdown_targets("[unmatched [ordinary](peer.md)")) == ["peer.md"]
+    assert list(_iter_markdown_targets("[unmatched ![image](peer.md)")) == []
+    assert list(_iter_markdown_targets(r"[escaped \] label](peer.md)")) == ["peer.md"]
+    assert list(_iter_markdown_targets("[outer [inner]](peer.md)")) == ["peer.md"]
+    assert list(_iter_markdown_targets("[ordinary](peer.md)")) == ["peer.md"]
 
 
 def test_nonlocal_anchor_and_image_markdown_forms_are_ignored_without_diagnostics():

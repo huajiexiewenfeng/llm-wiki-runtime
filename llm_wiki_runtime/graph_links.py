@@ -225,12 +225,13 @@ def _iter_markdown_targets(body: str):
         start = body.find("[", index)
         if start < 0:
             return
-        if start > 0 and body[start - 1] == "!":
+        if _is_escaped(body, start) or (start > 0 and body[start - 1] == "!" and not _is_escaped(body, start - 1)):
             index = start + 1
             continue
-        close = body.find("](", start + 1)
-        if close < 0:
-            return
+        close = _matching_markdown_label_end(body, start + 1)
+        if close is None or close + 1 == len(body) or body[close + 1] != "(":
+            index = start + 1
+            continue
         depth = 1
         cursor = close + 2
         destination_start = cursor
@@ -249,6 +250,24 @@ def _iter_markdown_targets(body: str):
             index = cursor
         else:
             index = close + 2
+
+
+def _matching_markdown_label_end(body: str, start: int) -> int | None:
+    depth = 1
+    cursor = start
+    while cursor < len(body):
+        char = body[cursor]
+        if char == "\\" and cursor + 1 < len(body):
+            cursor += 2
+            continue
+        if char == "[":
+            depth += 1
+        elif char == "]":
+            depth -= 1
+            if depth == 0:
+                return cursor
+        cursor += 1
+    return None
 
 
 def _clean_wikilink_target(target: str) -> str | None:
