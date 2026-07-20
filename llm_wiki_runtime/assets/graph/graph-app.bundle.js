@@ -361,7 +361,7 @@ void main() {
   vec2 sourceCompensationVector =
     vec2(-sourceDirection * unitNormal.y, sourceDirection * unitNormal.x)
     * (webGLSourceRadius + webGLSourceArrowHeadLength);
-    
+
   // Target arrow head
   float targetRadius = a_targetRadius * a_targetRadiusCoef;
   float targetDirection = sign(targetRadius);

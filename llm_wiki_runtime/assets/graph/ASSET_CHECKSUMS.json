@@ -1,7 +1,7 @@
 {
   "algorithm": "sha256",
   "assets": {
-    "graph-app.bundle.js": "sha256:f4f711bebfa7ffd0911fb458619607c067c4936850e9dff24ec5d643236cee89",
+    "graph-app.bundle.js": "sha256:7cbec8b84eab1cbb35a7fe3887be91817d88e13e4948b38facecd722f7c2a9b2",
     "index-app.bundle.js": "sha256:4745cab7bf6d80fa6a5745265c32b739e84e95a6712421ada823bd4be865bfcb"
   }
 }

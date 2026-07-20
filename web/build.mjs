@@ -75,7 +75,11 @@ for (const [name] of entries) {
   const fileName = `${name}.bundle.js`;
   const filePath = path.join(assetRoot, fileName);
   const contents = await readFile(filePath, "utf8");
-  assertOffline(fileName, contents);
+  const normalizedContents = contents.replace(/^[ \t]+$/gm, "");
+  if (normalizedContents !== contents) {
+    await writeFile(filePath, normalizedContents, "utf8");
+  }
+  assertOffline(fileName, normalizedContents);
   assets[fileName] = await checksum(filePath);
 }
 await writeFile(
