@@ -24,7 +24,7 @@ def test_cli_version_outputs_json():
     assert result.returncode == 0
     payload = json.loads(result.stdout)
     assert payload["status"] == "ok"
-    assert payload["version"]
+    assert payload["version"] == "0.2.0"
 
 
 def test_cli_version_includes_standard_response_fields():

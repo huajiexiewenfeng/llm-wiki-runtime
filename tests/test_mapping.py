@@ -153,6 +153,8 @@ def test_status_reference_lists_phase_one_vocabulary_exactly():
         "domain_mapping_required",
         "already_exists",
         "validation_error",
+        "scope_busy",
+        "partial_failure",
         "read_denied",
         "runtime_unavailable",
         "io_error",

@@ -16,6 +16,11 @@ _INTEGER_RE = re.compile(r"-?(?:0|[1-9][0-9]*)\Z")
 _FLOAT_RE = re.compile(
     r"-?(?:(?:0|[1-9][0-9]*)\.[0-9]+|(?:0|[1-9][0-9]*)[eE][+-]?[0-9]+|(?:0|[1-9][0-9]*)\.[0-9]+[eE][+-]?[0-9]+)\Z"
 )
+_ISO_8601_RE = re.compile(
+    r"[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])"
+    r"T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\.[0-9]+)?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])\Z"
+)
+_SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 
 
 def parse_frontmatter(text: str) -> tuple[dict[str, FrontmatterValue], int]:
@@ -136,6 +141,10 @@ def _parse_scalar(value: str) -> FrontmatterScalar:
         if not math.isfinite(parsed):
             raise ValueError("frontmatter floats must be finite")
         return parsed
+    if _ISO_8601_RE.fullmatch(value):
+        return value
+    if _SHA256_RE.fullmatch(value):
+        return value
     if value.startswith(("&", "*", "!", "|", ">")) or ":" in value or "#" in value:
         raise ValueError("unsupported plain scalar")
     return value

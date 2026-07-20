@@ -20,6 +20,7 @@ from .paths import ensure_under_root, validate_slug
 
 _VARIABLE_SEGMENT_PATTERN = r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}"
 _PLACEHOLDER_PATTERN = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}\Z")
+_PLACEHOLDER_SEARCH_PATTERN = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 # Task 4 intentionally scans these frozen sequences for *_ids references.
 CollectedFrontmatterSequence: TypeAlias = tuple[FrontmatterScalar, ...]
@@ -267,15 +268,24 @@ def _compile_write_rule_templates(
             fragments: list[str] = ["^"]
             variables: list[str] = []
             for part in normalized.split("/"):
-                match = _PLACEHOLDER_PATTERN.fullmatch(part)
-                if match is not None:
+                matches = tuple(_PLACEHOLDER_SEARCH_PATTERN.finditer(part))
+                if matches:
+                    if len(matches) != 1:
+                        raise ValueError("write-rule path segments may contain only one variable")
+                    match = matches[0]
                     variable = match.group(1)
                     if variable in variables:
                         raise ValueError("repeated write-rule variable")
                     variables.append(variable)
+                    prefix = part[: match.start()]
+                    suffix = part[match.end() :]
+                    if "{" in prefix + suffix or "}" in prefix + suffix:
+                        raise ValueError("malformed write-rule variable")
+                    fragments.append(re.escape(prefix))
                     fragments.append(f"(?P<{variable}>{_VARIABLE_SEGMENT_PATTERN})")
+                    fragments.append(re.escape(suffix))
                 elif "{" in part or "}" in part:
-                    raise ValueError("write-rule variables must occupy one full path segment")
+                    raise ValueError("malformed write-rule variable")
                 else:
                     fragments.append(re.escape(part))
                 fragments.append("/")

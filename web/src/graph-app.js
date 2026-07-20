@@ -59,13 +59,16 @@ function injectStyles() {
 
 function createGraph(payload) {
   const graph = new Graph({ multi: true, type: "directed", allowSelfLoops: true });
+  const compactGraph = (payload.nodes?.length ?? 0) <= 50;
   for (const node of payload.nodes ?? []) {
+    const structuralNode = node.type === "domain" || node.type === "scope";
     graph.addNode(node.id, {
       ...node,
+      forceLabel: compactGraph || structuralNode,
       label: node.label || node.id,
+      size: compactGraph ? 9 : structuralNode ? 11 : node.type === "record" ? 6 : 4,
       x: Number.isFinite(node.x) ? node.x : 0,
       y: Number.isFinite(node.y) ? node.y : 0,
-      size: 9,
     });
   }
   for (const edge of payload.edges ?? []) {
@@ -210,6 +213,8 @@ function graphApp() {
   );
   const renderer = new Sigma(graph, canvas, {
     edgeProgramClasses,
+    labelDensity: graph.order <= 50 ? 1 : 0.25,
+    labelRenderedSizeThreshold: graph.order <= 50 ? 6 : 10,
     nodeProgramClasses,
     renderEdgeLabels: false,
     stagePadding: 128,

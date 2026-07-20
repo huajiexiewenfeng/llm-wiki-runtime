@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -117,12 +117,14 @@ execFileSync(python, [path.join(testRoot, "make_fixture.py"), fixtureRoot], {
 
 const browser = await launchBrowser();
 try {
+  const timings = {};
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const externalRequests = [];
   page.on("request", (request) => {
     if (/^https?:/i.test(request.url())) externalRequests.push(request.url());
   });
 
+  const initialStarted = performance.now();
   await page.goto(pathToFileURL(path.join(fixtureRoot, "index.html")).href);
   await page.getByRole("link", { name: "Human Resources" }).click();
   await page.waitForURL(/\/hr\/graph\.html$/);
@@ -130,8 +132,10 @@ try {
 
   const desktopCanvas = await stableCanvas(page, { width: 1440, height: 900 });
   assert.ok((await nonBackgroundPixels(page)) > 100, "desktop WebGL canvas contains rendered graph pixels");
+  timings.initial_render_ms = performance.now() - initialStarted;
   await page.screenshot({ path: path.join(resultsRoot, "graph-desktop.png"), fullPage: true });
 
+  const filterStarted = performance.now();
   await page.getByLabel("Search graph").fill("alice");
   assert.equal(await page.getByLabel("Search graph").inputValue(), "alice");
   assert.deepEqual(await displayState(page, ["candidate-a", "role-b"]), {
@@ -146,6 +150,8 @@ try {
     nodes: { "brief-c": true, "candidate-a": false },
   });
   await page.getByLabel("Node: document").check();
+  timings.search_filter_ms = performance.now() - filterStarted;
+  const neighborhoodStarted = performance.now();
   await selectAnyNode(page, desktopCanvas);
   assert.deepEqual(await displayState(page, ["candidate-a", "brief-c"]), {
     edges: {},
@@ -157,10 +163,13 @@ try {
     edges: {},
     nodes: { "brief-c": false, "candidate-a": false },
   });
+  timings.depth_two_neighborhood_ms = performance.now() - neighborhoodStarted;
+  const pathStarted = performance.now();
   await page.getByPlaceholder("Path source ID").fill("candidate-a");
   await page.getByPlaceholder("Path target ID").fill("brief-c");
   await page.getByRole("button", { name: "Find path" }).click();
   await assertStatus(page, "Shortest path: candidate-a -> role-b -> brief-c");
+  timings.shortest_path_ms = performance.now() - pathStarted;
   await page.getByRole("button", { name: "Reset" }).click();
   assert.equal(await page.getByLabel("Search graph").inputValue(), "");
   assert.equal(await page.getByLabel("Node: document").isChecked(), true);
@@ -197,6 +206,19 @@ try {
   await page.screenshot({ path: mobileScreenshot, fullPage: true });
   assert.ok((await stat(mobileScreenshot)).size > 1000, "mobile screenshot is nonblank");
   assert.ok((await stat(path.join(resultsRoot, "graph-desktop.png"))).size > 1000, "desktop screenshot is nonblank");
+  for (const [name, milliseconds] of Object.entries(timings)) {
+    assert.ok(milliseconds < 5000, `${name} stays under the supported-workstation budget`);
+  }
+  await writeFile(
+    path.join(resultsRoot, "browser-performance.json"),
+    `${JSON.stringify({
+      browser: browser.version(),
+      cpu_count: os.cpus().length,
+      os: `${os.platform()} ${os.release()} ${os.arch()}`,
+      timings_ms: timings,
+    }, null, 2)}\n`,
+    "utf8",
+  );
 } finally {
   await browser.close();
   await rm(fixtureRoot, { recursive: true, force: true });

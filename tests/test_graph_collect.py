@@ -409,13 +409,12 @@ def test_required_reference_path_variable_selects_source_without_record_identity
 @pytest.mark.parametrize(
     ("template", "relative_path"),
     [
-        ("domains/hr/candidates/prefix-{candidate_id}.md", "candidates/prefix-c-1.md"),
         ("domains/hr/candidates/{candidate_id}/{candidate_id}.md", "candidates/c-1/c-1.md"),
         ("domains/hr/candidates/{unknown}", "candidates/c-1"),
         ("domains/hr/candidates/{candidate_id.md", "candidates/c-1.md"),
     ],
 )
-def test_write_rule_placeholders_must_be_unique_declared_full_slug_segments(tmp_path, template, relative_path):
+def test_write_rule_placeholders_must_be_unique_declared_slug_values(tmp_path, template, relative_path):
     from llm_wiki_runtime.graph_collect import collect_domain_nodes
 
     wiki_root = tmp_path / ".llm-wiki"
@@ -439,6 +438,40 @@ def test_write_rule_placeholders_must_be_unique_declared_full_slug_segments(tmp_
 
     assert all(node.type != "record" for node in collected.nodes)
     assert any(item.code == "invalid_write_rule_template" for item in collected.diagnostics)
+
+
+@pytest.mark.parametrize(
+    ("template", "relative_path"),
+    [
+        ("domains/hr/candidates/prefix-{candidate_id}.md", "candidates/prefix-c-1.md"),
+        ("domains/hr/candidates/{candidate_id}.md", "candidates/c-1.md"),
+    ],
+)
+def test_write_rule_placeholders_allow_static_filename_prefixes_and_suffixes(tmp_path, template, relative_path):
+    from llm_wiki_runtime.graph_collect import collect_domain_nodes
+
+    wiki_root = tmp_path / ".llm-wiki"
+    _write(wiki_root / "domains/hr" / relative_path, "---\ncandidate_id: c-1\n---\n")
+    profile = _profile()
+    profile = Profile(
+        **{
+            **profile.__dict__,
+            "write_rules": {
+                "candidate_profile": WriteRule(
+                    record_type="candidate_profile",
+                    path=template,
+                    mode="update_allowed",
+                    required_vars=["candidate_id"],
+                )
+            },
+        }
+    )
+
+    collected = collect_domain_nodes(wiki_root, profile, _adapter(), "hr")
+
+    record = next(node for node in collected.nodes if node.type == "record")
+    assert record.label == "c-1"
+    assert not any(item.code == "invalid_write_rule_template" for item in collected.diagnostics)
 
 
 def test_write_rule_variable_segment_uses_validate_slug_length_limit():

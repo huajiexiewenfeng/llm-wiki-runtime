@@ -6,6 +6,7 @@ __pycache__/
 .uv-cache/
 .uv-python/
 .venv/
+.venv-graph-smoke/
 .superpowers/
 .coverage
 htmlcov/

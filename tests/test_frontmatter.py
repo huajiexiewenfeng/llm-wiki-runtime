@@ -74,6 +74,30 @@ def test_parse_frontmatter_coerces_only_supported_scalar_values(value, expected)
     assert metadata == {"value": expected}
 
 
+def test_parse_frontmatter_accepts_strict_iso_8601_timestamp_as_text():
+    metadata, _ = parse_frontmatter(
+        "---\nimported_at: 2026-07-19T18:22:24.916880+08:00\nupdated_at: 2026-07-19T10:22:24Z\n---\n"
+    )
+
+    assert metadata == {
+        "imported_at": "2026-07-19T18:22:24.916880+08:00",
+        "updated_at": "2026-07-19T10:22:24Z",
+    }
+
+
+def test_parse_frontmatter_accepts_strict_sha256_checksum_as_text():
+    checksum = "sha256:" + "a1" * 32
+    metadata, _ = parse_frontmatter(f"---\nbody_checksum: {checksum}\n---\n")
+
+    assert metadata == {"body_checksum": checksum}
+
+
+@pytest.mark.parametrize("value", ["hello: world", "C:\\private", "2026-99-99T25:61:61+99:99"])
+def test_parse_frontmatter_does_not_generalize_timestamp_colon_support(value):
+    with pytest.raises(ValueError):
+        parse_frontmatter(f"---\nvalue: {value}\n---\n")
+
+
 @pytest.mark.parametrize("value", ["1e999", "-1e999"])
 def test_parse_frontmatter_rejects_non_finite_float_scalars(value):
     with pytest.raises(ValueError):

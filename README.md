@@ -114,7 +114,7 @@ llm-wiki version
 Expected response:
 
 ```json
-{"status":"ok","version":"0.1.0"}
+{"status":"ok","version":"0.2.0"}
 ```
 
 ## How Users Experience It
@@ -188,6 +188,7 @@ The CLI is an execution contract for Skills, not the primary end-user interface.
 | Context reads | `load-context-pack` |
 | Ingest preparation | `prepare-excerpt` |
 | Contracts and discovery | `validate-mapping`, `scan-scp` |
+| Offline graph views | `graph-export` |
 
 Every command returns a structured JSON envelope with `status`, `warnings`, `next_actions`, and `context_refs` where applicable.
 
@@ -199,6 +200,13 @@ An initialized scope uses a predictable layout:
 .llm-wiki/
   .meta/
     profile.yml
+    graph/
+      index.html
+      graph-manifest.json
+      graph-export-report.json
+      <domain>/
+        graph.html
+        graph.json
   domains/
     <domain>/
   sources/
@@ -210,6 +218,8 @@ An initialized scope uses a predictable layout:
 ```
 
 Domain profiles own the paths below `domains/<domain>/`. Runtime metadata stays under `.meta`, and raw sources are excluded from context packs by default.
+
+`llm-wiki graph-export --cwd <scope>` creates one self-contained, offline HTML page per discovered Domain and a shared index under `.llm-wiki/.meta/graph/`. The export uses only scope snapshots and explicit evidence-backed relationships; it does not infer cross-Domain edges. See [Offline graph export](docs/guides/graph-export.zh.md).
 
 ## Safety, Privacy, and Trust
 
@@ -238,6 +248,8 @@ profile_mismatch
 domain_mapping_required
 already_exists
 validation_error
+scope_busy
+partial_failure
 read_denied
 runtime_unavailable
 io_error

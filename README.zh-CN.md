@@ -114,7 +114,7 @@ llm-wiki version
 预期响应：
 
 ```json
-{"status":"ok","version":"0.1.0"}
+{"status":"ok","version":"0.2.0"}
 ```
 
 ## 用户实际体验
@@ -188,6 +188,7 @@ CLI 是 Skill 的执行契约，不是主要的终端用户界面。
 | 上下文读取 | `load-context-pack` |
 | Ingest 准备 | `prepare-excerpt` |
 | 契约与发现 | `validate-mapping`、`scan-scp` |
+| 离线图谱 | `graph-export` |
 
 每条命令都返回结构化 JSON envelope，并按场景提供 `status`、`warnings`、`next_actions` 和 `context_refs`。
 
@@ -199,6 +200,13 @@ CLI 是 Skill 的执行契约，不是主要的终端用户界面。
 .llm-wiki/
   .meta/
     profile.yml
+    graph/
+      index.html
+      graph-manifest.json
+      graph-export-report.json
+      <domain>/
+        graph.html
+        graph.json
   domains/
     <domain>/
   sources/
@@ -210,6 +218,8 @@ CLI 是 Skill 的执行契约，不是主要的终端用户界面。
 ```
 
 Domain Profile 管理 `domains/<domain>/` 下的路径。Runtime 元数据位于 `.meta`，原始来源默认不进入 context pack。
+
+`llm-wiki graph-export --cwd <scope>` 会为每个已发现的 Domain 生成独立、自包含、可离线打开的 HTML，并在 `.llm-wiki/.meta/graph/` 生成总入口。导出只使用 scope 内快照和带证据的显式关系，不推断跨 Domain 关系。详见[离线图谱导出指南](docs/guides/graph-export.zh.md)。
 
 ## 安全、隐私与信任
 
@@ -238,6 +248,8 @@ profile_mismatch
 domain_mapping_required
 already_exists
 validation_error
+scope_busy
+partial_failure
 read_denied
 runtime_unavailable
 io_error
