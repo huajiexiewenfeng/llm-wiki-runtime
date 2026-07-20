@@ -353,6 +353,40 @@ def test_template_variable_is_a_record_owned_identity_without_frontmatter_copy(t
     assert collected.identity_index["path-owned"] == (record.id,)
 
 
+def test_required_reference_path_variable_selects_source_without_record_identity(tmp_path):
+    from llm_wiki_runtime.graph_collect import collect_domain_nodes
+
+    wiki_root = tmp_path / ".llm-wiki"
+    _write(
+        wiki_root / "domains/hr/candidates/source-1/profile.md",
+        "---\nsource_id: source-1\n---\n",
+    )
+    _write(
+        wiki_root / "sources/registry.json",
+        json.dumps({"sources": [{"source_id": "source-1", "path": "sources/shared/resume.pdf"}]}),
+    )
+    profile = _profile()
+    profile = Profile(
+        **{
+            **profile.__dict__,
+            "write_rules": {
+                "candidate_profile": WriteRule(
+                    record_type="candidate_profile",
+                    path="domains/hr/candidates/{source_id}/profile.md",
+                    mode="update_allowed",
+                    required_vars=["source_id"],
+                    required_refs=["source_id"],
+                )
+            },
+        }
+    )
+
+    collected = collect_domain_nodes(wiki_root, profile, _adapter(), "hr")
+    source = next(node for node in collected.nodes if node.type == "source")
+
+    assert collected.identity_index["source-1"] == (source.id,)
+
+
 @pytest.mark.parametrize(
     ("template", "relative_path"),
     [

@@ -172,7 +172,9 @@ def collect_domain_nodes(
         path_candidates.setdefault(logical_path, set()).add(node.id)
         _index_owned_frontmatter_identities(frontmatter, owned_fields, node.id, identity_candidates)
         if matching is not None:
-            _index_template_variable_identities(matching[2], matching[1], node.id, identity_candidates)
+            _index_template_variable_identities(
+                matching[2], matching[1], tuple(matching_rule.required_refs), node.id, identity_candidates
+            )
         referenced_values.update(
             _frontmatter_reference_values(
                 frontmatter,
@@ -399,9 +401,15 @@ def _index_owned_frontmatter_identities(
 
 
 def _index_template_variable_identities(
-    match: re.Match[str], variables: tuple[str, ...], node_id: str, candidates: dict[str, set[str]]
+    match: re.Match[str],
+    variables: tuple[str, ...],
+    required_refs: tuple[str, ...],
+    node_id: str,
+    candidates: dict[str, set[str]],
 ) -> None:
     for variable in variables:
+        if variable in required_refs:
+            continue
         candidates.setdefault(match.group(variable), set()).add(node_id)
 
 
