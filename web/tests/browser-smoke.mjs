@@ -206,8 +206,14 @@ try {
   await page.screenshot({ path: mobileScreenshot, fullPage: true });
   assert.ok((await stat(mobileScreenshot)).size > 1000, "mobile screenshot is nonblank");
   assert.ok((await stat(path.join(resultsRoot, "graph-desktop.png"))).size > 1000, "desktop screenshot is nonblank");
+  const timingBudgets = {
+    initial_render_ms: 5000,
+    search_filter_ms: 250,
+    depth_two_neighborhood_ms: 500,
+    shortest_path_ms: 500,
+  };
   for (const [name, milliseconds] of Object.entries(timings)) {
-    assert.ok(milliseconds < 5000, `${name} stays under the supported-workstation budget`);
+    assert.ok(milliseconds < timingBudgets[name], `${name} stays under the supported-workstation budget`);
   }
   await writeFile(
     path.join(resultsRoot, "browser-performance.json"),
