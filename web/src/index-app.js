@@ -9,9 +9,15 @@ function compareText(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
+function isSafeDomainId(value) {
+  return typeof value === "string" && /^[a-z0-9][a-z0-9-]{0,63}$/.test(value);
+}
+
 function indexApp() {
   const payload = readPayload();
-  const domains = [...(payload.domains ?? [])].sort((left, right) => compareText(left.id, right.id));
+  const domains = [...(payload.domains ?? [])]
+    .filter((domain) => domain && isSafeDomainId(domain.id))
+    .sort((left, right) => compareText(left.id, right.id));
   const root = document.getElementById("graph-index-app") || document.body;
   root.id = "graph-index-app";
   root.replaceChildren();

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import json
+import math
 import re
 from collections.abc import Mapping
 from importlib import resources
@@ -25,7 +26,7 @@ _EXTERNAL_PATTERNS = (
     re.compile(r"\bXMLHttpRequest\b"),
     re.compile(r"\bWebSocket\b"),
     # A property method such as graph.import(...) is not a module import.
-    re.compile(r"(?<![\w$.}])import\s*\("),
+    re.compile(r"(?<![\w$.])import\s*\("),
 )
 
 _NODE_FIELDS = frozenset(
@@ -33,6 +34,12 @@ _NODE_FIELDS = frozenset(
 )
 _EDGE_FIELDS = frozenset({"id", "source", "target", "type", "label", "evidence", "metadata"})
 _DIAGNOSTIC_FIELDS = frozenset({"severity", "code", "path", "message"})
+_INDEX_DOMAIN_FIELDS = frozenset(
+    {"counts", "display_name", "errors", "id", "last_success_at", "status", "warnings"}
+)
+_DENIED_NESTED_KEYS = frozenset({"body", "content", "raw", "source", "source_body"})
+_DOMAIN_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
+_ABSOLUTE_PATH = re.compile(r"(?:[A-Za-z]:[\\/]|[/\\]{2}|file:)", re.IGNORECASE)
 
 
 def render_domain_html(payload: Mapping[str, object]) -> str:
@@ -52,14 +59,15 @@ def render_domain_html(payload: Mapping[str, object]) -> str:
 
 def render_index_html(manifest: Mapping[str, object]) -> str:
     """Return a portable entry page which only links to relative domain pages."""
-    title = manifest.get("title") if isinstance(manifest.get("title"), str) else "Domain graphs"
+    index_payload = _index_payload(manifest)
+    title = index_payload["title"]
     return _render(
         _INDEX_TEMPLATE,
         {
             "__PAGE_TITLE__": html.escape(title, quote=True),
             "__GRAPH_CSS__": _read_asset(_GRAPH_CSS),
-            "__GRAPH_INDEX_DATA__": _embedded_json(manifest),
-            "__DOMAIN_NAV__": _domain_navigation(manifest),
+            "__GRAPH_INDEX_DATA__": _embedded_json(index_payload),
+            "__DOMAIN_NAV__": _domain_navigation(index_payload),
             "__INDEX_APP__": _read_asset(_INDEX_APP),
         },
     )
@@ -69,8 +77,14 @@ def assert_self_contained_html(page: str) -> None:
     """Reject rendered pages that would load code, data, or URLs externally."""
     if not isinstance(page, str) or not page:
         raise ValueError("rendered graph HTML must be a non-empty string")
+    inspected = page
+    # These exact, checksummed vendored bundles contain a Graphology class method named
+    # ``import``. Mask only the trusted byte-for-byte assets so dynamic import scanning
+    # remains strict for templates, embedded data, and any added inline script.
+    for asset_name in (_GRAPH_APP, _INDEX_APP):
+        inspected = inspected.replace(_read_asset(asset_name), "/* trusted vendored graph bundle */")
     for pattern in _EXTERNAL_PATTERNS:
-        if pattern.search(page):
+        if pattern.search(inspected):
             raise ValueError("rendered graph HTML is not self-contained")
 
 
@@ -109,7 +123,7 @@ def _domain_navigation(manifest: Mapping[str, object]) -> str:
         if not isinstance(domain, Mapping):
             continue
         domain_id = domain.get("id")
-        if not isinstance(domain_id, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", domain_id):
+        if not isinstance(domain_id, str) or _DOMAIN_ID.fullmatch(domain_id) is None:
             continue
         display_name = domain.get("display_name")
         label = display_name if isinstance(display_name, str) and display_name else domain_id
@@ -150,10 +164,88 @@ def _domain_payload(payload: Mapping[str, object]) -> dict[str, object]:
 def _records(value: object, fields: frozenset[str]) -> list[dict[str, object]]:
     if not isinstance(value, list):
         return []
-    return [{key: item[key] for key in sorted(fields & item.keys())} for item in value if isinstance(item, Mapping)]
+    records: list[dict[str, object]] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            continue
+        record: dict[str, object] = {}
+        for key in sorted(fields & item.keys()):
+            if key == "metadata":
+                record[key] = _safe_mapping(item[key])
+            elif key == "evidence":
+                record[key] = _safe_evidence(item[key])
+            else:
+                record[key] = item[key]
+        records.append(record)
+    return records
 
 
 def _safe_mapping(value: object) -> dict[str, object]:
     if not isinstance(value, Mapping):
         return {}
-    return {key: value[key] for key in sorted(value) if isinstance(key, str) and key not in {"body", "content", "source"}}
+    result: dict[str, object] = {}
+    for key in sorted(key for key in value if isinstance(key, str)):
+        if key.lower() in _DENIED_NESTED_KEYS:
+            continue
+        sanitized = _safe_json_value(value[key])
+        if sanitized is not None or value[key] is None:
+            result[key] = sanitized
+    return result
+
+
+def _safe_evidence(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    return [_safe_mapping(item) for item in value if isinstance(item, Mapping)]
+
+
+def _safe_json_value(value: object) -> object:
+    if value is None or isinstance(value, bool) or isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, str):
+        return None if _looks_absolute_path(value) else value
+    if isinstance(value, (list, tuple)):
+        return [item for original in value if (item := _safe_json_value(original)) is not None or original is None]
+    if isinstance(value, Mapping):
+        return _safe_mapping(value)
+    return None
+
+
+def _looks_absolute_path(value: str) -> bool:
+    return value.startswith(("/", "\\")) or _ABSOLUTE_PATH.match(value) is not None
+
+
+def _index_payload(manifest: Mapping[str, object]) -> dict[str, object]:
+    if not isinstance(manifest, Mapping):
+        raise ValueError("graph manifest must be a mapping")
+    title = manifest.get("title")
+    safe_domains: list[dict[str, object]] = []
+    domains = manifest.get("domains")
+    if isinstance(domains, list):
+        for domain in domains:
+            if not isinstance(domain, Mapping):
+                continue
+            domain_id = domain.get("id")
+            if not isinstance(domain_id, str) or _DOMAIN_ID.fullmatch(domain_id) is None:
+                continue
+            projected: dict[str, object] = {"id": domain_id}
+            for key in sorted((_INDEX_DOMAIN_FIELDS - {"id"}) & domain.keys()):
+                if key == "counts":
+                    counts = domain[key]
+                    if isinstance(counts, Mapping):
+                        projected[key] = {
+                            name: counts[name]
+                            for name in ("edges", "nodes")
+                            if isinstance(counts.get(name), int) and not isinstance(counts.get(name), bool)
+                        }
+                else:
+                    safe = _safe_json_value(domain[key])
+                    if safe is not None:
+                        projected[key] = safe
+            safe_domains.append(projected)
+    return {
+        "domains": sorted(safe_domains, key=lambda domain: domain["id"]),
+        "title": title if isinstance(title, str) and not _looks_absolute_path(title) else "Domain graphs",
+    }

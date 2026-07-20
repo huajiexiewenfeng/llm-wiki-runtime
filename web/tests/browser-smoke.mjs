@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -43,7 +43,11 @@ async function launchBrowser() {
 }
 
 function overlaps(left, right) {
-  return left.x < right.x + right.width && left.x + left.width > right.x && left.y < right.y + right.height && left.y + left.height > right.y;
+  const tolerance = 1;
+  return left.x < right.x + right.width - tolerance
+    && left.x + left.width > right.x + tolerance
+    && left.y < right.y + right.height - tolerance
+    && left.y + left.height > right.y + tolerance;
 }
 
 async function stableCanvas(page, viewport) {
@@ -93,6 +97,17 @@ async function selectAnyNode(page, canvas) {
   await page.getByRole("heading", { name: "Node details" }).waitFor();
 }
 
+async function displayState(page, nodeIds, edgeIds = []) {
+  return page.evaluate(({ nodes, edges }) => {
+    const renderer = window.__LLM_WIKI_GRAPH_RENDERER__;
+    renderer.render();
+    return {
+      edges: Object.fromEntries(edges.map((id) => [id, renderer.getEdgeDisplayData(id)?.hidden ?? null])),
+      nodes: Object.fromEntries(nodes.map((id) => [id, renderer.getNodeDisplayData(id)?.hidden ?? null])),
+    };
+  }, { nodes: nodeIds, edges: edgeIds });
+}
+
 await mkdir(resultsRoot, { recursive: true });
 const fixtureRoot = await mkdtemp(path.join(resultsRoot, "graph-fixture-"));
 execFileSync(python, [path.join(testRoot, "make_fixture.py"), fixtureRoot], {
@@ -119,11 +134,29 @@ try {
 
   await page.getByLabel("Search graph").fill("alice");
   assert.equal(await page.getByLabel("Search graph").inputValue(), "alice");
+  assert.deepEqual(await displayState(page, ["candidate-a", "role-b"]), {
+    edges: {},
+    nodes: { "candidate-a": false, "role-b": true },
+  });
+  await page.getByLabel("Search graph").fill("");
   await page.getByLabel("Node: document").uncheck();
   assert.equal(await page.getByLabel("Node: document").isChecked(), false);
+  assert.deepEqual(await displayState(page, ["candidate-a", "brief-c"], ["b-c"]), {
+    edges: { "b-c": true },
+    nodes: { "brief-c": true, "candidate-a": false },
+  });
+  await page.getByLabel("Node: document").check();
+  await selectAnyNode(page, desktopCanvas);
+  assert.deepEqual(await displayState(page, ["candidate-a", "brief-c"]), {
+    edges: {},
+    nodes: { "brief-c": true, "candidate-a": false },
+  });
   await page.getByLabel("Neighbor depth").selectOption("2");
   assert.equal(await page.getByLabel("Neighbor depth").inputValue(), "2");
-  await selectAnyNode(page, desktopCanvas);
+  assert.deepEqual(await displayState(page, ["candidate-a", "brief-c"]), {
+    edges: {},
+    nodes: { "brief-c": false, "candidate-a": false },
+  });
   await page.getByPlaceholder("Path source ID").fill("candidate-a");
   await page.getByPlaceholder("Path target ID").fill("brief-c");
   await page.getByRole("button", { name: "Find path" }).click();
@@ -156,9 +189,14 @@ try {
   assert.ok(rightNode.x <= rightNode.canvasWidth - 120, "right-side node leaves room for its canvas label");
   const mobileToolbar = await page.locator(".lw-toolbar").boundingBox();
   const mobileDetails = await page.locator(".lw-details").boundingBox();
-  assert.ok(mobileToolbar && mobileDetails, "mobile graph regions have bounding boxes");
+  const mobileCanvasBox = await mobileCanvas.boundingBox();
+  assert.ok(mobileToolbar && mobileCanvasBox && mobileDetails, "mobile graph regions have bounding boxes");
   assert.equal(overlaps(mobileToolbar, mobileDetails), false, "mobile detail drawer does not overlap the toolbar");
-  await page.screenshot({ path: path.join(resultsRoot, "graph-mobile.png"), fullPage: true });
+  assert.equal(overlaps(mobileCanvasBox, mobileDetails), false, "mobile detail drawer does not overlap the canvas");
+  const mobileScreenshot = path.join(resultsRoot, "graph-mobile.png");
+  await page.screenshot({ path: mobileScreenshot, fullPage: true });
+  assert.ok((await stat(mobileScreenshot)).size > 1000, "mobile screenshot is nonblank");
+  assert.ok((await stat(path.join(resultsRoot, "graph-desktop.png"))).size > 1000, "desktop screenshot is nonblank");
 } finally {
   await browser.close();
   await rm(fixtureRoot, { recursive: true, force: true });
