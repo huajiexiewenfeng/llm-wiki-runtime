@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import time
+import builtins
 
 import pytest
 
@@ -204,3 +205,43 @@ def test_analysis_handles_ten_thousand_nodes_and_thirty_thousand_edges_without_t
     assert result.stats["node_count"] == node_count
     assert result.stats["edge_count"] == 30_000
     assert all(math.isfinite(node.x) and math.isfinite(node.y) for node in result.nodes)
+
+
+def test_analysis_rejects_blank_display_names_and_stores_trimmed_nonblank_names():
+    with pytest.raises(ValueError, match="display name must be a non-empty string"):
+        _analyze("hr", " \t\n ", (), (), ())
+
+    result = _analyze("hr", "  Human Resources  ", (), (), ())
+
+    assert result.domain == {"id": "hr", "display_name": "Human Resources"}
+
+
+def test_utf8_radix_order_matches_canonical_utf8_byte_order():
+    from llm_wiki_runtime.graph_analysis import _utf8_radix_order
+
+    assert _utf8_radix_order(("z", "a", "aa", "\u00e4", "\u4e2d", "a")) == [
+        "a",
+        "a",
+        "aa",
+        "z",
+        "\u00e4",
+        "\u4e2d",
+    ]
+
+
+def test_core_analysis_does_not_call_builtin_sorted(monkeypatch):
+    def forbidden_sorted(*args, **kwargs):
+        raise AssertionError("core graph analysis must use rank-driven linear ordering")
+
+    monkeypatch.setattr(builtins, "sorted", forbidden_sorted)
+
+    result = _analyze(
+        "hr",
+        "HR",
+        (_node("b"), _node("a"), _node("c")),
+        (_edge("bc", "b", "c"), _edge("ab", "a", "b")),
+        (),
+    )
+
+    assert [node.id for node in result.nodes] == ["a", "b", "c"]
+    assert [edge.id for edge in result.edges] == ["ab", "bc"]
