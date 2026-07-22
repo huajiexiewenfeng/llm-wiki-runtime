@@ -151,6 +151,11 @@ try {
   });
   await page.getByLabel("Node: document").check();
   timings.search_filter_ms = performance.now() - filterStarted;
+  await page.evaluate(() => window.__LLM_WIKI_GRAPH_RENDERER__.emit("clickNode", { node: "candidate-a" }));
+  const candidateDetails = await page.locator(".lw-details").innerText();
+  for (const expected of ["Alice", "30", "bachelors", "7"]) {
+    assert.ok(candidateDetails.includes(expected), `node details include allowlisted metadata value ${expected}`);
+  }
   const neighborhoodStarted = performance.now();
   await selectAnyNode(page, desktopCanvas);
   assert.deepEqual(await displayState(page, ["candidate-a", "brief-c"]), {

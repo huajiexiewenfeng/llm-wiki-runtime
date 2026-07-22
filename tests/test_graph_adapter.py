@@ -79,3 +79,14 @@ def test_snapshot_graph_adapter_writes_the_single_validated_source_text(tmp_path
     snapshot_path = tmp_path / ".llm-wiki" / ".meta" / "graph-adapters" / "hr.yml"
     assert snapshot_path.read_text(encoding="utf-8") == validated_text
     assert source_read_count == 1
+
+
+def test_hr_example_adapter_uses_display_name_and_person_detail_allowlist():
+    adapter = load_graph_adapter(Path(__file__).parents[1] / "examples/hr/graph-adapter.yml", "hr")
+
+    assert adapter.defaults.label_field == "display_name"
+    assert adapter.defaults.metadata_allowlist == (
+        "age",
+        "years_experience",
+        "education_level",
+    )

@@ -2,6 +2,35 @@ function compareIds(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
+const DETAIL_INTERNAL_FIELDS = new Set([
+  "metadata",
+  "evidence",
+  "search_text",
+  "forceLabel",
+  "size",
+  "color",
+  "x",
+  "y",
+]);
+
+export function detailEntries(item) {
+  const entries = [];
+  const seen = new Set();
+  for (const [key, value] of Object.entries(item ?? {})) {
+    if (DETAIL_INTERNAL_FIELDS.has(key) || value == null) {
+      continue;
+    }
+    entries.push([key, value]);
+    seen.add(key);
+  }
+  for (const [key, value] of Object.entries(item?.metadata ?? {}).sort(([left], [right]) => compareIds(left, right))) {
+    if (!seen.has(key) && value != null) {
+      entries.push([key, value]);
+    }
+  }
+  return entries;
+}
+
 function selectedValues(values) {
   if (values == null) {
     return null;

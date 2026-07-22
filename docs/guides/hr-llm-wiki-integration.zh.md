@@ -88,7 +88,23 @@ $sourcePayload = & $PY -m llm_wiki_runtime.cli copy-source `
 $sourceId = ($sourcePayload | ConvertFrom-Json).source_id
 
 $CANDIDATE = "$DEMO\candidate-profile.md"
-"# 张三`n`n- 候选人 ID：zhang-san`n- 方向：Java 后端`n- 标签：Spring Boot, Docker" | Set-Content -Path $CANDIDATE -Encoding UTF8
+@"
+---
+record_type: candidate_profile
+candidate_id: zhang-san
+display_name: "张三"
+age: "30岁"
+years_experience: "7年"
+education_level: "本科"
+summary: "30岁 · 7年 · 本科 · Java · Spring Boot"
+tags: ["Java", "Spring Boot", "Docker"]
+---
+
+# 候选人档案：张三
+
+- 候选人 ID：zhang-san
+- 方向：Java 后端
+"@ | Set-Content -Path $CANDIDATE -Encoding UTF8
 
 $vars = (@{ candidate_id = "zhang-san" } | ConvertTo-Json -Compress).Replace('"','\"')
 $refs = (@{ source_id = $sourceId; resume_version_id = "rv-001" } | ConvertTo-Json -Compress).Replace('"','\"')
@@ -119,3 +135,4 @@ $refs = (@{ source_id = $sourceId; resume_version_id = "rv-001" } | ConvertTo-Js
 - 返回里不包含 `sources/originals/**`。
 - `context_refs` 和每个 item 的 `checksum` 存在。
 - runtime 出错时，HR skill 继续原有流程，并提示本次没有使用 wiki backend。
+- `candidate_profile` frontmatter 包含 `display_name`；可确认时同时写入 `age`、`years_experience`、`education_level`、`summary` 和 `tags`，供离线图谱按白名单展示。

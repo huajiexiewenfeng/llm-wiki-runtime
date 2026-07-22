@@ -3,7 +3,7 @@ import Sigma from "sigma";
 import { EdgeLineProgram, NodeCircleProgram } from "sigma/rendering";
 
 import { resolveLocalFileAction } from "./graph-file-actions.js";
-import { edgeKeysForPath, filterVisibleNodeIds, neighborsWithinDepth, shortestPath } from "./graph-state.js";
+import { detailEntries, edgeKeysForPath, filterVisibleNodeIds, neighborsWithinDepth, shortestPath } from "./graph-state.js";
 
 const TYPE_COLORS = ["#0f766e", "#2563eb", "#b45309", "#be123c", "#6d28d9", "#047857"];
 
@@ -112,8 +112,7 @@ function detailContent(item, heading) {
     return fragment;
   }
   const details = document.createElement("dl");
-  for (const [key, value] of Object.entries(item)) {
-    if (["metadata", "evidence", "search_text", "x", "y"].includes(key) || value == null) continue;
+  for (const [key, value] of detailEntries(item)) {
     const name = document.createElement("dt");
     name.textContent = titleCase(key);
     const content = document.createElement("dd");

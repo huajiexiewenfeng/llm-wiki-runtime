@@ -17,7 +17,14 @@ def main(output_root: Path) -> None:
         domain={"display_name": "Human Resources", "id": "hr"},
         stats={"edges": 3, "nodes": 4},
         nodes=(
-            _node("candidate-a", "record", "Alice", -1.0, 0.0),
+            _node(
+                "candidate-a",
+                "record",
+                "Alice",
+                -1.0,
+                0.0,
+                metadata={"age": "30", "education_level": "bachelors", "years_experience": "7"},
+            ),
             _node("role-b", "record", "Platform Engineer", 1.0, 0.0),
             _node("brief-c", "document", "Hiring brief", 0.0, 1.0),
             _node("source-d", "source", "Candidate notes", 0.0, -1.0),
@@ -49,7 +56,14 @@ def main(output_root: Path) -> None:
     (domain_dir / "graph.html").write_text(render_domain_html(graph.to_dict()), encoding="utf-8")
 
 
-def _node(node_id: str, node_type: str, label: str, x: float, y: float) -> GraphNode:
+def _node(
+    node_id: str,
+    node_type: str,
+    label: str,
+    x: float,
+    y: float,
+    metadata: dict[str, str] | None = None,
+) -> GraphNode:
     return GraphNode(
         id=node_id,
         type=node_type,
@@ -59,6 +73,7 @@ def _node(node_id: str, node_type: str, label: str, x: float, y: float) -> Graph
         status="active",
         tags=("fixture",),
         path=f"domains/hr/{node_id}.md",
+        metadata=metadata or {},
         x=x,
         y=y,
         search_text=f"{label} {node_type}".lower(),

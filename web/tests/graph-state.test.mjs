@@ -3,6 +3,7 @@ import test from "node:test";
 import Graph, { MultiDirectedGraph, MultiUndirectedGraph } from "graphology";
 
 import {
+  detailEntries,
   edgeKeysForPath,
   filterVisibleNodeIds,
   neighborsWithinDepth,
@@ -13,6 +14,36 @@ function addNodes(graph, ids) {
   ids.forEach((id) => graph.addNode(id, { search_text: id, type: "record" }));
   return graph;
 }
+
+test("detailEntries exposes allowlisted metadata and hides renderer internals", () => {
+  assert.deepEqual(
+    detailEntries({
+      id: "candidate-1",
+      label: "任伟",
+      type: "record",
+      metadata: {
+        years_experience: "10年",
+        age: "39岁",
+        education_level: "本科",
+      },
+      evidence: [{ path: "domains/hr/candidates/candidate-1/profile.md" }],
+      search_text: "任伟 Java",
+      forceLabel: true,
+      size: 9,
+      color: "#000000",
+      x: 1,
+      y: 2,
+    }),
+    [
+      ["id", "candidate-1"],
+      ["label", "任伟"],
+      ["type", "record"],
+      ["age", "39岁"],
+      ["education_level", "本科"],
+      ["years_experience", "10年"],
+    ],
+  );
+});
 
 test("shortestPath returns one deterministic BFS path", () => {
   const graph = addNodes(new Graph(), ["a", "b", "c", "d"]);
