@@ -143,6 +143,14 @@ try {
     nodes: { "candidate-a": false, "role-b": true },
   });
   await page.getByLabel("Search graph").fill("");
+  assert.equal(await page.getByLabel("Record: candidate").isChecked(), true);
+  assert.equal(await page.getByLabel("Record: job").isChecked(), true);
+  await page.getByLabel("Record: job").uncheck();
+  assert.deepEqual(await displayState(page, ["candidate-a", "role-b"]), {
+    edges: {},
+    nodes: { "candidate-a": false, "role-b": true },
+  });
+  await page.getByLabel("Record: job").check();
   await page.getByLabel("Node: document").uncheck();
   assert.equal(await page.getByLabel("Node: document").isChecked(), false);
   assert.deepEqual(await displayState(page, ["candidate-a", "brief-c"], ["b-c"]), {

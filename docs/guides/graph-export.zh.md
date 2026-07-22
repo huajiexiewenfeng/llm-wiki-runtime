@@ -40,6 +40,8 @@ llm-wiki graph-export --cwd "C:\path\to\scope" --domain hr
 
 Runtime 从 `.llm-wiki/.meta/graph-adapters/<domain>.yml` 读取声明式 adapter 快照。快照缺失时使用内建默认：文件名作为标签、`record_type` 作为 subtype，不额外导出 metadata。导出不依赖宿主 Skill registry，因此卸载 Skill 后，已有 scope 仍可导出。
 
+图谱对 `record` 节点按 subtype 分配独立颜色，并生成带颜色标识的 `Record` 筛选项。例如候选人、岗位和 JD 版本即使同属 `record`，也可以在图上直接区分和独立筛选。节点详情中的 `kind` 提供可读分类名，同时保留原始 subtype 便于审计。
+
 ## 失败与恢复
 
 导出在 scope lock 内运行。每个 Domain 先在内存中完成收集、关系解析、布局、序列化和 HTML 校验，再通过同级 staging/backup 目录替换。单个 Domain 失败时保留上一次成功产物，并继续其他 Domain；下次运行会恢复遗留 backup，并清理受控 staging 目录。

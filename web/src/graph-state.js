@@ -11,7 +11,24 @@ const DETAIL_INTERNAL_FIELDS = new Set([
   "color",
   "x",
   "y",
+  "visualCategory",
 ]);
+
+function humanizeIdentifier(value) {
+  const normalized = String(value ?? "").replace(/[_-]+/g, " ").trim();
+  return normalized ? normalized[0].toUpperCase() + normalized.slice(1) : "Unknown";
+}
+
+export function nodeVisualCategory(node) {
+  if (node?.type === "record" && node.subtype) {
+    return `record:${node.subtype}`;
+  }
+  return node?.type || "unknown";
+}
+
+export function nodeDisplayKind(node) {
+  return humanizeIdentifier(node?.type === "record" && node.subtype ? node.subtype : node?.type);
+}
 
 export function detailEntries(item) {
   const entries = [];
@@ -121,10 +138,11 @@ function hasEnabledIncidentEdge(graph, nodeId, edgeTypes) {
   return edgeIds.some((edgeId) => edgeTypes.has(graph.getEdgeAttribute(edgeId, "type")));
 }
 
-export function filterVisibleNodeIds(graph, query, nodeTypes, edgeTypes) {
+export function filterVisibleNodeIds(graph, query, nodeTypes, edgeTypes, recordSubtypes) {
   const normalizedQuery = String(query ?? "").trim().toLowerCase();
   const selectedNodeTypes = selectedValues(nodeTypes);
   const selectedEdgeTypes = selectedValues(edgeTypes);
+  const selectedRecordSubtypes = selectedValues(recordSubtypes);
 
   return new Set(
     [...graph.nodes()]
@@ -135,6 +153,7 @@ export function filterVisibleNodeIds(graph, query, nodeTypes, edgeTypes) {
         return (
           searchText.includes(normalizedQuery) &&
           (selectedNodeTypes === null || selectedNodeTypes.has(attributes.type)) &&
+          (selectedRecordSubtypes === null || attributes.type !== "record" || selectedRecordSubtypes.has(attributes.subtype)) &&
           (selectedEdgeTypes === null || hasEnabledIncidentEdge(graph, nodeId, selectedEdgeTypes))
         );
       }),

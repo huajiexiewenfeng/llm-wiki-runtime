@@ -7,6 +7,8 @@ import {
   edgeKeysForPath,
   filterVisibleNodeIds,
   neighborsWithinDepth,
+  nodeDisplayKind,
+  nodeVisualCategory,
   shortestPath,
 } from "../src/graph-state.js";
 
@@ -43,6 +45,13 @@ test("detailEntries exposes allowlisted metadata and hides renderer internals", 
       ["years_experience", "10年"],
     ],
   );
+});
+
+test("record subtypes receive distinct visual categories and readable kinds", () => {
+  assert.equal(nodeVisualCategory({ type: "record", subtype: "candidate" }), "record:candidate");
+  assert.equal(nodeVisualCategory({ type: "record", subtype: "job" }), "record:job");
+  assert.equal(nodeVisualCategory({ type: "source", subtype: "resume_pdf" }), "source");
+  assert.equal(nodeDisplayKind({ type: "record", subtype: "job-description-version" }), "Job description version");
 });
 
 test("shortestPath returns one deterministic BFS path", () => {
@@ -152,6 +161,18 @@ test("filterVisibleNodeIds accepts absent filters and does not mutate graph attr
 
   assert.deepEqual([...filterVisibleNodeIds(graph, "", null, null)], ["a", "b"]);
   assert.deepEqual(graph.export(), before);
+});
+
+test("filterVisibleNodeIds filters record nodes by subtype without hiding other node types", () => {
+  const graph = new Graph();
+  graph.addNode("candidate", { search_text: "Alice", type: "record", subtype: "candidate" });
+  graph.addNode("job", { search_text: "Senior Java", type: "record", subtype: "job" });
+  graph.addNode("source", { search_text: "Resume", type: "source", subtype: "resume_pdf" });
+
+  assert.deepEqual(
+    [...filterVisibleNodeIds(graph, "", null, null, new Set(["candidate"]))],
+    ["candidate", "source"],
+  );
 });
 
 test("filterVisibleNodeIds uses deterministic Unicode case normalization", () => {

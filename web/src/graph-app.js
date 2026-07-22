@@ -3,7 +3,15 @@ import Sigma from "sigma";
 import { EdgeLineProgram, NodeCircleProgram } from "sigma/rendering";
 
 import { resolveLocalFileAction } from "./graph-file-actions.js";
-import { detailEntries, edgeKeysForPath, filterVisibleNodeIds, neighborsWithinDepth, shortestPath } from "./graph-state.js";
+import {
+  detailEntries,
+  edgeKeysForPath,
+  filterVisibleNodeIds,
+  neighborsWithinDepth,
+  nodeDisplayKind,
+  nodeVisualCategory,
+  shortestPath,
+} from "./graph-state.js";
 
 const TYPE_COLORS = ["#0f766e", "#2563eb", "#b45309", "#be123c", "#6d28d9", "#047857"];
 
@@ -38,6 +46,7 @@ function injectStyles() {
     .lw-search { min-width: 176px; flex: 1 1 220px; }
     .lw-filter { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
     .lw-filter input { height: auto; margin: 0; }
+    .lw-swatch { width: 10px; height: 10px; border: 1px solid #64748b; border-radius: 50%; flex: 0 0 auto; }
     .lw-canvas { grid-column: 1; min-height: 0; position: relative; }
     .lw-canvas canvas { display: block; }
     .lw-details { grid-column: 2; min-height: 0; overflow: auto; padding: 16px; border-left: 1px solid #cbd5e1; background: #ffffff; }
@@ -64,6 +73,8 @@ function createGraph(payload) {
     const structuralNode = node.type === "domain" || node.type === "scope";
     graph.addNode(node.id, {
       ...node,
+      kind: nodeDisplayKind(node),
+      visualCategory: nodeVisualCategory(node),
       forceLabel: compactGraph || structuralNode,
       label: node.label || node.id,
       size: compactGraph ? 9 : structuralNode ? 11 : node.type === "record" ? 6 : 4,
@@ -83,7 +94,7 @@ function uniqueValues(items, field) {
   return [...new Set(items.map((item) => item[field]).filter(Boolean))].sort(compareText);
 }
 
-function addCheckboxes(container, label, values, selected, onChange) {
+function addCheckboxes(container, label, values, selected, onChange, colors = null) {
   for (const value of values) {
     const item = document.createElement("label");
     item.className = "lw-filter";
@@ -95,7 +106,15 @@ function addCheckboxes(container, label, values, selected, onChange) {
       input.checked ? selected.add(value) : selected.delete(value);
       onChange();
     });
-    item.append(input, document.createTextNode(`${label}: ${titleCase(value)}`));
+    item.append(input);
+    if (colors?.has(value)) {
+      const swatch = document.createElement("span");
+      swatch.className = "lw-swatch";
+      swatch.style.backgroundColor = colors.get(value);
+      swatch.setAttribute("aria-hidden", "true");
+      item.append(swatch);
+    }
+    item.append(document.createTextNode(`${label}: ${titleCase(value)}`));
     container.append(item);
   }
 }
@@ -184,8 +203,19 @@ function graphApp() {
   toolbar.append(search, depth, reset);
 
   const nodeTypes = new Set(uniqueValues(payload.nodes ?? [], "type"));
+  const recordSubtypes = new Set(
+    uniqueValues((payload.nodes ?? []).filter((node) => node.type === "record"), "subtype"),
+  );
   const edgeTypes = new Set(uniqueValues(payload.edges ?? [], "type"));
+  const visualCategories = uniqueValues((payload.nodes ?? []).map((node) => ({ category: nodeVisualCategory(node) })), "category");
+  const categoryColors = new Map(
+    visualCategories.map((category, index) => [category, TYPE_COLORS[index % TYPE_COLORS.length]]),
+  );
+  const recordSubtypeColors = new Map(
+    [...recordSubtypes].map((subtype) => [subtype, categoryColors.get(`record:${subtype}`)]),
+  );
   addCheckboxes(toolbar, "Node", [...nodeTypes], nodeTypes, apply);
+  addCheckboxes(toolbar, "Record", [...recordSubtypes], recordSubtypes, apply, recordSubtypeColors);
   addCheckboxes(toolbar, "Edge", [...edgeTypes], edgeTypes, apply);
 
   const pathControls = document.createElement("div");
@@ -231,7 +261,7 @@ function graphApp() {
   let pathEdges = new Set();
 
   function visibleNodes() {
-    const base = filterVisibleNodeIds(graph, search.value, nodeTypes, edgeTypes);
+    const base = filterVisibleNodeIds(graph, search.value, nodeTypes, edgeTypes, recordSubtypes);
     if (!selectedNode || !graph.hasNode(selectedNode)) {
       return base;
     }
@@ -290,13 +320,9 @@ function graphApp() {
     renderer.refresh();
   }
 
-  for (const [index, type] of uniqueValues(payload.nodes ?? [], "type").entries()) {
-    graph.forEachNode((nodeId, attributes) => {
-      if (attributes.type === type) {
-        graph.mergeNodeAttributes(nodeId, { color: TYPE_COLORS[index % TYPE_COLORS.length] });
-      }
-    });
-  }
+  graph.forEachNode((nodeId, attributes) => {
+    graph.mergeNodeAttributes(nodeId, { color: categoryColors.get(attributes.visualCategory) });
+  });
   graph.forEachEdge((edgeId) => graph.mergeEdgeAttributes(edgeId, { color: "#94a3b8" }));
 
   renderer.on("clickNode", ({ node }) => {
@@ -326,8 +352,11 @@ function graphApp() {
     pathTarget.value = "";
     status.textContent = "";
     nodeTypes.clear();
+    recordSubtypes.clear();
     edgeTypes.clear();
     uniqueValues(payload.nodes ?? [], "type").forEach((value) => nodeTypes.add(value));
+    uniqueValues((payload.nodes ?? []).filter((node) => node.type === "record"), "subtype")
+      .forEach((value) => recordSubtypes.add(value));
     uniqueValues(payload.edges ?? [], "type").forEach((value) => edgeTypes.add(value));
     toolbar.querySelectorAll('input[type="checkbox"]').forEach((input) => {
       input.checked = true;
