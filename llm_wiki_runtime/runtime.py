@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import runtime_config_path
+from .content_validation import validate_record_text
 from .graph_adapter import snapshot_graph_adapter
 from .io import atomic_write_json, atomic_write_text, sha256_file
 from .locking import ScopeLock
@@ -356,6 +357,7 @@ def write_record(
     logical_path = render_logical_path(rule.path, variables)
     target = ensure_under_root(wiki_root, logical_path)
     content = content_file.read_text(encoding="utf-8")
+    validate_record_text(content)
     with ScopeLock(wiki_root, command="write-record"):
         validate_refs(wiki_root, rule.required_refs, refs)
         target.parent.mkdir(parents=True, exist_ok=True)

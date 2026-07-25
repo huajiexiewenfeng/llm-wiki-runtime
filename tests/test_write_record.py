@@ -169,6 +169,54 @@ def test_write_record_registers_artifact_without_reentrant_lock(tmp_path):
     assert "package_run" in index
 
 
+@pytest.mark.parametrize("character", ["\x00", "\x01", "\x0b", "\x0c", "\x1f", "\x7f"])
+def test_write_record_rejects_forbidden_controls_without_changing_target(
+    tmp_path,
+    character,
+):
+    wiki_root = tmp_path / ".llm-wiki"
+    wiki_root.mkdir()
+    profile = tmp_path / "profile.yml"
+    write_profile(profile)
+    target = wiki_root / "domains/hr/screenings/run-001/report.md"
+    target.parent.mkdir(parents=True)
+    target.write_text("original", encoding="utf-8")
+    content = tmp_path / "content.md"
+    content.write_text(f"unsafe{character}text", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="forbidden control character"):
+        write_record(
+            tmp_path,
+            profile,
+            "screening_report",
+            {"run_id": "run-001"},
+            {},
+            content,
+        )
+
+    assert target.read_text(encoding="utf-8") == "original"
+
+
+def test_write_record_allows_tab_line_feed_and_carriage_return(tmp_path):
+    wiki_root = tmp_path / ".llm-wiki"
+    wiki_root.mkdir()
+    profile = tmp_path / "profile.yml"
+    write_profile(profile)
+    content = tmp_path / "content.md"
+    content.write_text("one\ttwo\nthree\rfour", encoding="utf-8")
+
+    payload = write_record(
+        tmp_path,
+        profile,
+        "screening_report",
+        {"run_id": "run-safe"},
+        {},
+        content,
+    )
+
+    assert payload["status"] == "ok"
+
+
 def test_context_pack_excludes_meta_and_sorts_by_path(tmp_path):
     wiki_root = tmp_path / ".llm-wiki"
     (wiki_root / "domains/hr/b").mkdir(parents=True)
