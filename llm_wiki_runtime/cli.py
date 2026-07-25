@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from .graph_export import export_graphs
 from .ingest import prepare_excerpt, write_excerpt_snapshot
 from .mapping import load_ingest_mapping, validate_ingest_mapping
 from .profile import load_profile
+from .record_lookup import find_records
 from .runtime import (
     append_log,
     append_profile_log,
@@ -40,6 +42,17 @@ def emit(payload: dict, exit_code: int = 0) -> int:
         pass
     print(json.dumps(with_response_envelope(payload), ensure_ascii=False, sort_keys=True))
     return exit_code
+
+
+def parse_lookup_value(raw: str):
+    value = json.loads(raw)
+    if value is None or isinstance(value, (list, dict)):
+        raise ValueError("lookup value must be a non-null finite JSON scalar")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("lookup value must be a non-null finite JSON scalar")
+    if not isinstance(value, (str, int, float, bool)):
+        raise ValueError("lookup value must be a non-null finite JSON scalar")
+    return value
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -95,6 +108,15 @@ def build_parser() -> argparse.ArgumentParser:
     write.add_argument("--variables-json", required=True)
     write.add_argument("--refs-json", required=True)
     write.add_argument("--content-file", required=True)
+
+    lookup = sub.add_parser("find-records")
+    lookup.add_argument("--scope-root", required=True)
+    lookup.add_argument("--record-type", required=True)
+    lookup.add_argument("--lookup-value-json", required=True)
+    lookup.add_argument("--caller-domain")
+    lookup.add_argument("--target-domain")
+    lookup.add_argument("--domain-policies-json")
+    lookup.add_argument("--caller-groups-json", default="[]")
 
     context = sub.add_parser("load-context-pack")
     context.add_argument("--wiki-root", required=True)
@@ -238,6 +260,21 @@ def main(argv: list[str] | None = None) -> int:
                     Path(args.content_file),
                 )
             )
+        if args.command == "find-records":
+            payload = find_records(
+                Path(args.scope_root),
+                args.record_type,
+                parse_lookup_value(args.lookup_value_json),
+                caller_domain=args.caller_domain,
+                target_domain=args.target_domain,
+                domain_policies=(
+                    json.loads(args.domain_policies_json)
+                    if args.domain_policies_json
+                    else None
+                ),
+                caller_groups=json.loads(args.caller_groups_json),
+            )
+            return emit(payload, 1 if payload["status"] == "read_denied" else 0)
         if args.command == "load-context-pack":
             return emit(
                 load_context_pack(

@@ -2,6 +2,10 @@ import json
 import subprocess
 import sys
 
+import pytest
+
+from llm_wiki_runtime.runtime import init_profile
+
 
 def test_cli_help_module_imports():
     result = subprocess.run(
@@ -420,3 +424,143 @@ def test_cli_validate_mapping_reports_missing_mapping_as_degradable(tmp_path):
     payload = json.loads(result.stdout)
     assert payload["status"] == "domain_mapping_required"
     assert payload["next_actions"]
+
+
+@pytest.fixture
+def project_lookup_scope(tmp_path):
+    profile = tmp_path / "profile.yml"
+    profile.write_text(
+        "\n".join(
+            [
+                "profile:",
+                "  id: projects",
+                "  version: v0.1",
+                "layout:",
+                "  directories:",
+                "    - domains/projects",
+                "write_rules:",
+                "  records:",
+                "    project_record:",
+                "      path: domains/projects/{project_id}/profile.md",
+                "      mode: update_allowed",
+                "      required_vars: [project_id]",
+                "      required_refs: []",
+                "read_rules:",
+                "  context_pack:",
+                "    include: [domains/projects/**]",
+                "    exclude: [.meta/**]",
+                "  record_lookup:",
+                "    project_record:",
+                "      identity_field: project_id",
+                "      display_field: display_name",
+                "      match_fields: [display_name, aliases]",
+                "      return_fields: [project_id, display_name, aliases]",
+                "      max_results: 20",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    init_profile(tmp_path, profile, "local", "projects-test")
+    for project_id in ("project-001", "project-002"):
+        path = tmp_path / f".llm-wiki/domains/projects/{project_id}/profile.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "\n".join(
+                [
+                    "---",
+                    "record_type: project_record",
+                    f"project_id: {project_id}",
+                    'display_name: "Shared"',
+                    "aliases: []",
+                    "---",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+    return tmp_path
+
+
+def test_cli_find_records_returns_multiple_matches_with_exit_zero(project_lookup_scope):
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "llm_wiki_runtime.cli",
+            "find-records",
+            "--scope-root",
+            str(project_lookup_scope),
+            "--record-type",
+            "project_record",
+            "--lookup-value-json",
+            json.dumps("Shared"),
+            "--caller-domain",
+            "projects",
+            "--target-domain",
+            "projects",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    payload = json.loads(result.stdout)
+    assert result.returncode == 0
+    assert payload["status"] == "multiple_matches"
+    assert payload["context_refs"]
+
+
+@pytest.mark.parametrize("lookup_json", ["null", "[]", "{}", "NaN"])
+def test_cli_find_records_rejects_non_scalar_or_non_finite_values(
+    project_lookup_scope,
+    lookup_json,
+):
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "llm_wiki_runtime.cli",
+            "find-records",
+            "--scope-root",
+            str(project_lookup_scope),
+            "--record-type",
+            "project_record",
+            "--lookup-value-json",
+            lookup_json,
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert json.loads(result.stdout)["status"] == "validation_error"
+
+
+def test_cli_find_records_returns_read_denied_with_exit_one(project_lookup_scope):
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "llm_wiki_runtime.cli",
+            "find-records",
+            "--scope-root",
+            str(project_lookup_scope),
+            "--record-type",
+            "project_record",
+            "--lookup-value-json",
+            json.dumps("Shared"),
+            "--caller-domain",
+            "learning",
+            "--target-domain",
+            "projects",
+            "--domain-policies-json",
+            json.dumps({"projects": {"readable_by": []}}),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["status"] == "read_denied"
