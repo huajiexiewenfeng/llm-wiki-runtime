@@ -185,10 +185,13 @@ CLI 是 Skill 的执行契约，不是主要的终端用户界面。
 | --- | --- |
 | Runtime 与配置 | `version`、`resolve-config`、`init-home`、`init-profile` |
 | 持久写入 | `copy-source`、`write-record`、`register-artifact`、`append-log` |
-| 上下文读取 | `load-context-pack` |
+| 上下文读取 | `find-records`、`load-context-pack` |
 | Ingest 准备 | `prepare-excerpt` |
 | 契约与发现 | `validate-mapping`、`scan-scp` |
 | 离线图谱 | `graph-export` |
+
+`find-records` 只对 Profile 声明的 frontmatter 字段执行精确匹配，不搜索
+Markdown 正文，也不依赖 Graph 输出。
 
 每条命令都返回结构化 JSON envelope，并按场景提供 `status`、`warnings`、`next_actions` 和 `context_refs`。
 

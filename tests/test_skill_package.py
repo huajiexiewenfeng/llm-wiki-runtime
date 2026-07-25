@@ -74,9 +74,13 @@ def test_query_resolves_domain_and_uses_runtime_context_filters():
     text = read(CHILDREN["llm-wiki-query"])
     assert "explicit domain" in text.lower()
     assert "calling skill's scp" in text.lower()
+    assert "find-records" in text
     assert "load-context-pack" in text
     assert "--path-json" in text
     assert "--glob-json" in text
+    assert "multiple_matches" in text
+    assert "never infer identity from graph output" in text.lower()
+    assert "record lookup is not declared" in text.lower()
     assert "data_only" in text
 
 

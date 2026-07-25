@@ -185,10 +185,13 @@ The CLI is an execution contract for Skills, not the primary end-user interface.
 | --- | --- |
 | Runtime and configuration | `version`, `resolve-config`, `init-home`, `init-profile` |
 | Durable writes | `copy-source`, `write-record`, `register-artifact`, `append-log` |
-| Context reads | `load-context-pack` |
+| Context reads | `find-records`, `load-context-pack` |
 | Ingest preparation | `prepare-excerpt` |
 | Contracts and discovery | `validate-mapping`, `scan-scp` |
 | Offline graph views | `graph-export` |
+
+`find-records` performs only declared exact matches against frontmatter fields.
+It does not search Markdown bodies or depend on Graph output.
 
 Every command returns a structured JSON envelope with `status`, `warnings`, `next_actions`, and `context_refs` where applicable.
 
