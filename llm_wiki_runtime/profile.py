@@ -2,10 +2,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .models import ContextPackRule, LogRule, Profile, WriteRule
+from .frontmatter import is_frontmatter_field_name
+from .models import ContextPackRule, LogRule, Profile, RecordLookupRule, WriteRule
 
 
 PROFILE_SNAPSHOT_RELATIVE = Path(".meta/profile.yml")
+_LOOKUP_KEYS = {
+    "identity_field",
+    "display_field",
+    "match_fields",
+    "return_fields",
+    "max_results",
+}
 
 
 def parse_scalar(value: str):
@@ -25,12 +33,58 @@ def parse_scalar(value: str):
         return value.strip('"').strip("'")
 
 
+def _lookup_fields(values: dict[str, object], key: str, record_type: str) -> tuple[str, ...]:
+    fields = values.get(key, [])
+    if not isinstance(fields, list):
+        raise ValueError(f"{key} must be a list: {record_type}")
+    return tuple(fields)
+
+
+def _build_record_lookup_rule(
+    record_type: str,
+    values: dict[str, object],
+) -> RecordLookupRule:
+    unknown = sorted(set(values) - _LOOKUP_KEYS)
+    if unknown:
+        raise ValueError(f"unsupported record lookup fields: {unknown}")
+
+    identity_field = values.get("identity_field")
+    display_field = values.get("display_field")
+    match_fields = _lookup_fields(values, "match_fields", record_type)
+    return_fields = _lookup_fields(values, "return_fields", record_type)
+    max_results = values.get("max_results", 20)
+
+    named_fields = [identity_field, display_field, *match_fields, *return_fields]
+    if not all(is_frontmatter_field_name(value) for value in named_fields):
+        raise ValueError(f"invalid frontmatter field name in record lookup: {record_type}")
+    if not match_fields:
+        raise ValueError(f"match_fields must not be empty: {record_type}")
+    if len(set(match_fields)) != len(match_fields):
+        raise ValueError(f"match_fields must be unique: {record_type}")
+    if identity_field not in return_fields:
+        raise ValueError(f"return_fields must contain identity_field: {record_type}")
+    if display_field not in return_fields:
+        raise ValueError(f"return_fields must contain display_field: {record_type}")
+    if type(max_results) is not int or not 1 <= max_results <= 100:
+        raise ValueError("max_results must be an integer from 1 through 100")
+
+    return RecordLookupRule(
+        record_type=record_type,
+        identity_field=identity_field,
+        display_field=display_field,
+        match_fields=match_fields,
+        return_fields=return_fields,
+        max_results=max_results,
+    )
+
+
 def load_profile(path: Path) -> Profile:
     lines = path.read_text(encoding="utf-8").splitlines()
     profile_values: dict[str, object] = {}
     directories: list[str] = []
     write_rules: dict[str, WriteRule] = {}
     context_values: dict[str, object] = {}
+    record_lookup: dict[str, RecordLookupRule] = {}
     artifact_types: list[str] = []
     log_rules: dict[str, LogRule] = {}
 
@@ -39,6 +93,10 @@ def load_profile(path: Path) -> Profile:
     current_rule: dict[str, object] = {}
     in_directories = False
     in_context_pack = False
+    in_record_lookup = False
+    current_lookup_record: str | None = None
+    current_lookup_rule: dict[str, object] = {}
+    current_lookup_list_key: str | None = None
     in_log_types = False
     current_log_type: str | None = None
     current_log_rule: dict[str, object] = {}
@@ -75,6 +133,17 @@ def load_profile(path: Path) -> Profile:
         current_log_type = None
         current_log_rule = {}
 
+    def flush_lookup_rule() -> None:
+        nonlocal current_lookup_record, current_lookup_rule, current_lookup_list_key
+        if current_lookup_record:
+            record_lookup[current_lookup_record] = _build_record_lookup_rule(
+                current_lookup_record,
+                current_lookup_rule,
+            )
+        current_lookup_record = None
+        current_lookup_rule = {}
+        current_lookup_list_key = None
+
     for raw in lines:
         if not raw.strip() or raw.lstrip().startswith("#"):
             continue
@@ -83,9 +152,11 @@ def load_profile(path: Path) -> Profile:
         if indent == 0 and stripped.endswith(":"):
             flush_record()
             flush_log_rule()
+            flush_lookup_rule()
             section = stripped[:-1]
             in_directories = False
             in_context_pack = False
+            in_record_lookup = False
             in_log_types = False
             continue
         if section == "profile" and indent == 2 and ":" in stripped:
@@ -106,9 +177,33 @@ def load_profile(path: Path) -> Profile:
         elif section == "read_rules":
             if indent == 2 and stripped == "context_pack:":
                 in_context_pack = True
+                in_record_lookup = False
+            elif indent == 2 and stripped == "record_lookup:":
+                flush_lookup_rule()
+                in_context_pack = False
+                in_record_lookup = True
             elif in_context_pack and indent >= 4 and ":" in stripped:
                 key, value = stripped.split(":", 1)
                 context_values[key] = parse_scalar(value)
+            elif in_record_lookup and indent == 4 and stripped.endswith(":"):
+                flush_lookup_rule()
+                current_lookup_record = stripped[:-1]
+            elif current_lookup_record and indent == 6 and ":" in stripped:
+                key, value = stripped.split(":", 1)
+                value = value.strip()
+                current_lookup_list_key = None
+                if key in {"match_fields", "return_fields"} and not value:
+                    current_lookup_rule[key] = []
+                    current_lookup_list_key = key
+                else:
+                    current_lookup_rule[key] = parse_scalar(value)
+            elif (
+                current_lookup_record
+                and current_lookup_list_key
+                and indent == 8
+                and stripped.startswith("- ")
+            ):
+                current_lookup_rule[current_lookup_list_key].append(parse_scalar(stripped[2:]))
         elif section == "artifacts" and indent == 2 and stripped.startswith("types:"):
             _, value = stripped.split(":", 1)
             artifact_types = list(parse_scalar(value))
@@ -123,6 +218,11 @@ def load_profile(path: Path) -> Profile:
                 current_log_rule[key] = parse_scalar(value)
     flush_record()
     flush_log_rule()
+    flush_lookup_rule()
+
+    for lookup_record_type in record_lookup:
+        if lookup_record_type not in write_rules:
+            raise ValueError(f"lookup record type is not writable: {lookup_record_type}")
 
     context_pack = ContextPackRule(
         include=list(context_values.get("include", [])),
@@ -139,6 +239,7 @@ def load_profile(path: Path) -> Profile:
         directories=directories,
         write_rules=write_rules,
         context_pack=context_pack,
+        record_lookup=record_lookup,
         artifact_types=artifact_types,
         log_rules=log_rules,
     )

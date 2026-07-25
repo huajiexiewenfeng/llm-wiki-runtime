@@ -39,6 +39,16 @@ class ContextPackRule:
 
 
 @dataclass(frozen=True)
+class RecordLookupRule:
+    record_type: str
+    identity_field: str
+    display_field: str
+    match_fields: tuple[str, ...]
+    return_fields: tuple[str, ...]
+    max_results: int = 20
+
+
+@dataclass(frozen=True)
 class LogRule:
     log_type: str
     path: str
@@ -55,5 +65,6 @@ class Profile:
     directories: list[str] = field(default_factory=list)
     write_rules: dict[str, WriteRule] = field(default_factory=dict)
     context_pack: ContextPackRule = field(default_factory=ContextPackRule)
+    record_lookup: dict[str, RecordLookupRule] = field(default_factory=dict)
     artifact_types: list[str] = field(default_factory=list)
     log_rules: dict[str, LogRule] = field(default_factory=dict)

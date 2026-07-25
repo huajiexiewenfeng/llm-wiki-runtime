@@ -23,6 +23,10 @@ _ISO_8601_RE = re.compile(
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 
 
+def is_frontmatter_field_name(value: str) -> bool:
+    return isinstance(value, str) and bool(_KEY_RE.fullmatch(value))
+
+
 def parse_frontmatter(text: str) -> tuple[dict[str, FrontmatterValue], int]:
     """Parse a leading, restricted YAML-like metadata block without YAML support."""
     if not isinstance(text, str) or not text.startswith("---"):
