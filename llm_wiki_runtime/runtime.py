@@ -13,6 +13,7 @@ from .locking import ScopeLock
 from .paths import ensure_under_root, render_logical_path
 from .policy import assert_read_allowed, effective_instruction_policy, load_domain_policies
 from .profile import load_active_profile, load_profile
+from .read_paths import iter_readable_files
 
 
 def now_iso() -> str:
@@ -404,24 +405,10 @@ def append_meta_change_log(wiki_root: Path, record_type: str, logical_path: str,
     atomic_write_text(path, existing + line + "\n")
 
 
-def is_excluded(path: str, patterns: list[str]) -> bool:
-    return any(fnmatch.fnmatch(path, pattern) for pattern in patterns)
-
-
-def is_included(path: str, patterns: list[str]) -> bool:
-    return any(fnmatch.fnmatch(path, pattern) for pattern in patterns)
-
-
 def matches_any_filter(path: str, filters: list[str] | None) -> bool:
     if not filters:
         return True
     return any(path == item or fnmatch.fnmatch(path, item) for item in filters)
-
-
-def sort_context_paths(paths: list[Path], wiki_root: Path, order: str) -> list[Path]:
-    if order == "mtime_desc":
-        return sorted(paths, key=lambda item: (-item.stat().st_mtime, item.relative_to(wiki_root).as_posix()))
-    return sorted(paths, key=lambda item: item.relative_to(wiki_root).as_posix())
 
 
 DATA_ONLY_RISK_TERMS = [
@@ -476,16 +463,10 @@ def load_context_pack(
             "next_actions": ["ask the architect to update domain_policies.readable_by"],
         }
     effective_policy = effective_instruction_policy(target_domain, policies, default=policy or "trusted_content")
-    effective_exclude = list(dict.fromkeys([*exclude, ".meta/**"]))
     eligible_paths: list[str] = []
     items = []
-    candidates = [path for path in wiki_root.rglob("*") if path.is_file()]
-    for path in sort_context_paths(candidates, wiki_root, order):
-        if not path.is_file():
-            continue
+    for path in iter_readable_files(wiki_root, include, exclude, order):
         rel = path.relative_to(wiki_root).as_posix()
-        if not is_included(rel, include) or is_excluded(rel, effective_exclude):
-            continue
         eligible_paths.append(rel)
         if not matches_any_filter(rel, path_filters) or not matches_any_filter(rel, glob_filters):
             continue
