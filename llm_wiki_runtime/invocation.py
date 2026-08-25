@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from dataclasses import asdict
@@ -370,9 +371,18 @@ def _write_payload(operation: str, payload: dict) -> dict:
             raise InvocationError("invalid_invocation", "refs must be an object")
         if not isinstance(payload["content_file"], str) or not payload["content_file"]:
             raise InvocationError("invalid_invocation", "content_file must be a non-empty string")
+    elif operation == "register_artifact":
+        _safe_id(payload["artifact_type"], "artifact_type")
+        record = payload["record"]
+        if not isinstance(record, dict):
+            raise InvocationError("invalid_invocation", "artifact record must be an object")
+        _safe_id(record.get("artifact_id"), "artifact_id")
+        record_artifact_type = _safe_id(record.get("artifact_type"), "artifact_type")
+        if record_artifact_type != payload["artifact_type"]:
+            raise InvocationError("invalid_invocation", "artifact record type must match artifact_type")
+        return {"artifact_type": payload["artifact_type"], "record": copy.deepcopy(record)}
     else:
-        kind = "artifact_type" if operation == "register_artifact" else "log_type"
-        _safe_id(payload[kind], kind)
+        _safe_id(payload["log_type"], "log_type")
         if not isinstance(payload["record"], dict):
             raise InvocationError("invalid_invocation", "record must be an object")
     return dict(payload)

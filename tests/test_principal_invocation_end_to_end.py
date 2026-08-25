@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import re
+
 import pytest
 
 import llm_wiki_runtime.invocation as runtime
 from llm_wiki_runtime.invocation import InvocationError, execute_invocation
+from llm_wiki_runtime.mapping import load_ingest_mapping, mapping_digest
+from llm_wiki_runtime.policy import domain_policy_digest
+from llm_wiki_runtime.principal_registry import load_principal_registry
+from llm_wiki_runtime.profile import load_active_profile
 from test_principal_invocation import PrincipalScope, principal_scope, write_request
 
 
@@ -45,6 +51,19 @@ def test_workload_can_copy_write_log_and_read_back(principal_scope: PrincipalSco
             "content_file": str(principal_scope.content),
         },
     )
+    artifact = invoke(
+        principal_scope,
+        "register_artifact",
+        {
+            "artifact_type": "demo_artifact",
+            "record": {
+                "artifact_id": "demo-artifact-record-2",
+                "artifact_type": "demo_artifact",
+                "path": written["result"]["path"],
+                "checksum": written["result"]["checksum"],
+            },
+        },
+    )
     logged = invoke(
         principal_scope,
         "append_log",
@@ -53,7 +72,56 @@ def test_workload_can_copy_write_log_and_read_back(principal_scope: PrincipalSco
 
     assert copied["result"]["status"] == "ok"
     assert len(written["result"]["checksum"]) == 64
+    assert artifact["result"] == {"status": "ok", "artifact_id": "demo-artifact-record-2"}
     assert logged["result"]["status"] == "ok"
+    copied_again = invoke(
+        principal_scope,
+        "copy_source",
+        {
+            "source": str(principal_scope.source),
+            "logical_path": "sources/originals/demo/source.json",
+            "source_type": "approved_demo",
+            "metadata": {},
+        },
+    )
+    written_again = invoke(
+        principal_scope,
+        "write_record",
+        {
+            "record_type": "demo_record",
+            "variables": {"record_id": "record-2"},
+            "refs": {"source_id": copied["result"]["source_id"]},
+            "content_file": str(principal_scope.content),
+        },
+    )
+    logged_again = invoke(
+        principal_scope,
+        "append_log",
+        {"log_type": "demo_event", "record": {"event_id": "demo:record-2"}},
+    )
+    assert copied_again["result"]["status"] == "already_exists"
+    assert written_again["result"]["status"] == "already_exists"
+    assert written_again["result"]["checksum"] == written["result"]["checksum"]
+    assert logged_again["result"]["status"] == "already_exists"
+    digest_pattern = r"sha256:[0-9a-f]{64}"
+    for digest in (
+        copied["authorization"]["registry_digest"],
+        copied["authorization"]["policy_digest"],
+        copied["authorization"]["profile_digest"],
+        copied["authorization"]["mapping_digest"],
+        copied["principal"]["contract_digest"],
+    ):
+        assert re.fullmatch(digest_pattern, digest)
+    assert copied["authorization"]["registry_digest"] == runtime._registry_digest(
+        load_principal_registry(principal_scope.registry)
+    )
+    assert copied["authorization"]["policy_digest"] == domain_policy_digest({})
+    assert copied["authorization"]["profile_digest"] == runtime._profile_digest(
+        load_active_profile(principal_scope.root)
+    )
+    assert copied["authorization"]["mapping_digest"] == mapping_digest(
+        load_ingest_mapping(principal_scope.mapping)
+    )
     assert execute_invocation(
         {
             "protocol_version": "v0.1",

@@ -474,3 +474,98 @@ def test_write_invocation_does_not_accept_a_legacy_mapping(principal_scope: Prin
         )
 
     assert exc.value.code == "invalid_invocation"
+
+
+@pytest.mark.parametrize(
+    ("operation", "payload", "target"),
+    [
+        (
+            "copy_source",
+            {
+                "source": "C:/source.json",
+                "logical_path": "sources/originals/demo/extra.json",
+                "source_type": "approved_demo",
+                "metadata": {},
+                "extra": True,
+            },
+            "sources/originals/demo/extra.json",
+        ),
+        (
+            "write_record",
+            {
+                "record_type": "demo_record",
+                "variables": {"record_id": "extra"},
+                "refs": {},
+                "content_file": "C:/content.md",
+                "extra": True,
+            },
+            "domains/demo/extra.md",
+        ),
+        (
+            "register_artifact",
+            {
+                "artifact_type": "demo_artifact",
+                "record": {"artifact_id": "demo-artifact-extra", "artifact_type": "demo_artifact"},
+                "extra": True,
+            },
+            "artifacts/index.json",
+        ),
+        (
+            "append_log",
+            {
+                "log_type": "demo_event",
+                "record": {"event_id": "demo:extra"},
+                "extra": True,
+            },
+            "logs/demo-events.jsonl",
+        ),
+    ],
+)
+def test_write_invocation_rejects_extra_payload_keys_without_writing(
+    principal_scope: PrincipalScope, operation: str, payload: dict, target: str
+):
+    with pytest.raises(InvocationError) as exc:
+        execute_invocation(
+            write_request(scope_root=str(principal_scope.root), operation=operation, payload=payload),
+            registry_path=principal_scope.registry,
+            profile_path=principal_scope.profile,
+            mapping_path=principal_scope.mapping,
+        )
+
+    assert exc.value.code == "invalid_invocation"
+    assert not (principal_scope.root / ".llm-wiki" / target).exists()
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        [],
+        {},
+        {"artifact_id": "demo-artifact-invalid"},
+        {"artifact_type": "demo_artifact"},
+        {"artifact_id": "not a safe id", "artifact_type": "demo_artifact"},
+        {"artifact_id": "demo-artifact-invalid", "artifact_type": "other_artifact"},
+    ],
+)
+def test_register_artifact_requires_a_bound_safe_record_before_writing(
+    principal_scope: PrincipalScope, record: object
+):
+    index = principal_scope.root / ".llm-wiki" / "artifacts" / "index.json"
+    index.parent.mkdir(parents=True, exist_ok=True)
+    original = '{"artifacts":[{"artifact_id":"existing"}]}'
+    index.write_text(original, encoding="utf-8")
+
+    with pytest.raises(InvocationError) as exc:
+        execute_invocation(
+            write_request(
+                scope_root=str(principal_scope.root),
+                operation="register_artifact",
+                payload={"artifact_type": "demo_artifact", "record": record},
+            ),
+            registry_path=principal_scope.registry,
+            profile_path=principal_scope.profile,
+            mapping_path=principal_scope.mapping,
+        )
+
+    assert exc.value.code == "invalid_invocation"
+    assert index.read_text(encoding="utf-8") == original
