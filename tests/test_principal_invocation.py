@@ -1,4 +1,5 @@
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -191,6 +192,53 @@ def test_find_records_invocation_returns_principal_observation(principal_scope: 
     assert result["principal"]["kind"] == "workload"
     assert result["authorization"]["decision"] == "allowed"
     assert result["result"]["status"] == "found"
+
+
+def test_all_invocation_modes_observe_a_canonical_registry_digest(principal_scope: PrincipalScope):
+    responses = [
+        execute_invocation(
+            request(scope_root=str(principal_scope.root)),
+            registry_path=principal_scope.registry,
+        ),
+        execute_invocation(
+            request(
+                operation="find_records",
+                scope_root=str(principal_scope.root),
+                payload={"record_type": "demo_record", "lookup_value": "record-1"},
+            ),
+            registry_path=principal_scope.registry,
+        ),
+        execute_invocation(
+            write_request(
+                scope_root=str(principal_scope.root),
+                payload={
+                    "record_type": "demo_record",
+                    "variables": {"record_id": "record-2"},
+                    "refs": {},
+                    "content_file": str(principal_scope.content),
+                },
+            ),
+            registry_path=principal_scope.registry,
+            profile_path=principal_scope.profile,
+            mapping_path=principal_scope.mapping,
+        ),
+    ]
+
+    for response in responses:
+        assert re.fullmatch(r"sha256:[0-9a-f]{64}", response["authorization"]["registry_digest"])
+
+
+def test_invocation_response_canonicalizes_a_legacy_raw_registry_digest(principal_scope: PrincipalScope, monkeypatch):
+    import llm_wiki_runtime.invocation as runtime
+
+    monkeypatch.setattr(runtime, "_registry_digest", lambda registry: "a" * 64)
+
+    result = execute_invocation(
+        request(scope_root=str(principal_scope.root)),
+        registry_path=principal_scope.registry,
+    )
+
+    assert result["authorization"]["registry_digest"] == "sha256:" + "a" * 64
 
 
 def test_unknown_invocation_operation_is_rejected(principal_scope: PrincipalScope):

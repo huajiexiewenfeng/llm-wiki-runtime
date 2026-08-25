@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 from dataclasses import asdict
 from pathlib import Path
 
@@ -104,6 +105,7 @@ def execute_invocation(
 
     authorization.update(
         {
+            "registry_digest": _canonical_registry_digest(_registry_digest(registry)),
             "principal_contract_digest": principal["contract_digest"],
             "profile_digest": _profile_digest(profile),
         }
@@ -222,7 +224,7 @@ def _execute_write_invocation(
 
     authorization.update(
         {
-            "registry_digest": _registry_digest(registry),
+            "registry_digest": _canonical_registry_digest(_registry_digest(registry)),
             "policy_digest": domain_policy_digest(policies),
             "profile_digest": profile_digest,
             "mapping_digest": mapping_observation["mapping_digest"],
@@ -503,6 +505,14 @@ def _profile_digest(profile) -> str:
 def _registry_digest(registry: dict) -> str:
     canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
     return "sha256:" + hashlib.sha256(canonical).hexdigest()
+
+
+def _canonical_registry_digest(value: str) -> str:
+    if re.fullmatch(r"[0-9a-f]{64}", value):
+        return "sha256:" + value
+    if re.fullmatch(r"sha256:[0-9a-f]{64}", value):
+        return value
+    raise InvocationError("invalid_invocation", "registry_digest must be a canonical SHA-256 digest")
 
 
 def _principal_observation(principal_id: str, principal: dict) -> dict:
