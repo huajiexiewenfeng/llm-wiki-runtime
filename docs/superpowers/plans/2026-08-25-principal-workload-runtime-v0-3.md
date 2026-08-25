@@ -18,6 +18,7 @@
 - Registry `principals` is authoritative; `skills` is a deterministic read-only compatibility projection.
 - Existing SCP v0.1, Registry v0.1 input, Mapping v0.1 `owner_skill_id`, and existing CLI commands remain compatible throughout `0.3.x`.
 - New Workload integrations must use `llm-wiki invoke`; an Invocation failure must never fall back to a legacy write command.
+- `mapping_id` and `--mapping-path` must appear together. Runtime must verify the declared logical Mapping ID against the loaded Mapping Contract and its digest; every write Invocation requires both.
 - Runtime, Principal, Profile, Mapping, and Policy changes stale unexecuted Plans/Approvals; terminal complete Receipts remain historical and their records remain read-only queryable when checksums match.
 - Runtime Core remains the only writer of `.llm-wiki`; do not duplicate its locks, atomic IO, Profile path rendering, record lookup, or context loading.
 - Historical and external content remains `data_only`; Principal kind never raises content trust.
@@ -643,13 +644,14 @@ REQUIRED_INVOCATION_FIELDS = {
     "scope_root",
     "payload",
 }
+OPTIONAL_INVOCATION_FIELDS = {"mapping_id"}
 INVOCATION_VERSION = "v0.1"
 ALLOWED_OPERATIONS = frozenset(
     {"resolve", "find_records", "load_context", "copy_source", "write_record", "register_artifact", "append_log"}
 )
 ```
 
-Reject unknown fields, unsafe IDs, non-object payloads, files larger than the byte cap, non-absolute/nonexistent scope roots, unsupported kinds/roles, and a Registry Contract digest that no longer matches its Contract file.
+Reject unknown fields, unsafe IDs, non-object payloads, files larger than the byte cap, non-absolute/nonexistent scope roots, unsupported kinds/roles, and a Registry Contract digest that no longer matches its Contract file. Require `mapping_id` exactly when `--mapping-path` is present; load that Contract and reject `invalid_invocation` when its `mapping.id` differs from the declared logical ID.
 
 - [ ] **Step 4: Dispatch read operations to existing Core**
 
@@ -669,7 +671,7 @@ resolve:
 
 Call `find_records()` and `load_context_pack()` directly. Reuse Active Profile read rules and preserve existing result status/cardinality. Wrap the unchanged Core result under `result` and add Principal/Authorization observations.
 
-When `resolve` receives explicit Profile and Mapping paths, validate both without writing and include their canonical digests in the Authorization observation. This is the Harness preflight used to bind a pending Plan; omitting either path omits only that inapplicable digest field.
+When `resolve` receives explicit Profile and Mapping paths, require the request's matching `mapping_id`, validate both Contracts without writing, and include their canonical digests in the Authorization observation. This is the Harness preflight used to bind a pending Plan; omitting the Mapping path and ID omits only the inapplicable Mapping digest.
 
 - [ ] **Step 5: Add CLI parsing and stable error emission**
 
@@ -719,6 +721,8 @@ git commit -m "feat: add principal-aware read invocation"
 
 Test one approved write sequence and each denial boundary:
 
+The `write_request()` fixture must set `mapping_id: demo-mapping` by default so every write request is valid before the specific authorization condition under test is evaluated.
+
 ```python
 def test_workload_can_copy_write_log_and_read_back(principal_scope):
     copied = invoke(principal_scope, "copy_source", {"source": str(principal_scope.source), "logical_path": "sources/originals/demo/source.json", "source_type": "approved_demo", "metadata": {}})
@@ -764,7 +768,7 @@ Expected: write operations return `operation_not_allowed` or lack dispatch.
 
 - [ ] **Step 3: Implement typed write authorization and Core delegation**
 
-Require `--mapping-path` and `--profile-path` for every write Invocation. Load and validate the Mapping before any Core call. Compare the packaged Profile digest with `scope_root / ".llm-wiki" / ".meta" / "profile.yml"`; return `profile_mismatch` before writing when they differ.
+Require request `mapping_id`, CLI `--mapping-path`, and CLI `--profile-path` for every write Invocation. Load and validate the Mapping before any Core call, require its logical ID to equal the request value, and bind its canonical digest. Compare the packaged Profile digest with `scope_root / ".llm-wiki" / ".meta" / "profile.yml"`; return `profile_mismatch` before writing when they differ.
 
 Use exact payload schemas:
 
