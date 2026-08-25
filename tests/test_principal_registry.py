@@ -141,6 +141,49 @@ def test_normalize_rejects_stale_skill_projection():
     assert exc.value.code == "principal_conflict"
 
 
+def test_normalize_rejects_unsupported_persisted_principal_kind():
+    registry = empty_registry()
+    registry["principals"]["demo-agent"] = {"kind": "agent", "domain": "demo"}
+
+    with pytest.raises(PrincipalRegistryError) as exc:
+        normalize_registry(registry)
+
+    assert exc.value.code == "principal_kind_unsupported"
+
+
+def test_normalize_rejects_unsupported_persisted_workload_role():
+    registry = empty_registry()
+    registry["principals"]["demo-harness"] = {"kind": "workload", "role": "service", "domain": "demo"}
+
+    with pytest.raises(PrincipalRegistryError) as exc:
+        normalize_registry(registry)
+
+    assert exc.value.code == "principal_role_unsupported"
+
+
+def test_normalize_rejects_a_workload_role_on_persisted_skill():
+    registry = empty_registry()
+    skill = {"kind": "skill", "role": "domain_harness", "domain": "demo"}
+    registry["principals"]["demo-skill"] = skill
+    registry["skills"]["demo-skill"] = skill
+
+    with pytest.raises(PrincipalRegistryError) as exc:
+        normalize_registry(registry)
+
+    assert exc.value.code == "principal_role_unsupported"
+
+
+def test_scan_scp_rejects_same_id_as_registered_workload(tmp_path):
+    workload = load_principal_manifest(write_workload_manifest(tmp_path))
+    workload["principal"]["id"] = "demo-skill"
+    registry = register_workload_principal(empty_registry(), workload)
+
+    with pytest.raises(PrincipalRegistryError) as exc:
+        build_principal_registry([write_skill_scp(tmp_path)], registry, {}, {})
+
+    assert exc.value.code == "principal_conflict"
+
+
 def test_load_registry_is_read_only_and_write_uses_v02_projection(tmp_path):
     registry = build_principal_registry([write_skill_scp(tmp_path)], empty_registry(), {}, {})
     target = tmp_path / "registry.json"

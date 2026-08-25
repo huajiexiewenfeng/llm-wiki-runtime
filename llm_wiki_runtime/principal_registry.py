@@ -78,6 +78,19 @@ def _project_skills(principals: dict) -> dict:
     return {principal_id: entry for principal_id, entry in principals.items() if entry.get("kind") == "skill"}
 
 
+def _validate_persisted_principal(principal_id: str, entry: object) -> None:
+    if not isinstance(entry, dict):
+        raise PrincipalRegistryError("principal_kind_unsupported", f"principal entry must be a mapping: {principal_id}")
+    kind = entry.get("kind")
+    if kind not in {"skill", "workload"}:
+        raise PrincipalRegistryError("principal_kind_unsupported", f"unsupported principal kind: {kind!r}")
+    role = entry.get("role")
+    if kind == "skill" and role is not None:
+        raise PrincipalRegistryError("principal_role_unsupported", f"skill principal cannot carry a role: {principal_id}")
+    if kind == "workload" and role != "domain_harness":
+        raise PrincipalRegistryError("principal_role_unsupported", f"unsupported workload role: {role!r}")
+
+
 def _copy_common_fields(source: dict, target: dict) -> None:
     for key in ("domains", "domain_policies", "warnings"):
         if key in source:
@@ -131,6 +144,8 @@ def normalize_registry(registry: dict) -> dict:
     principals = registry.get("principals", {})
     if not isinstance(principals, dict):
         raise PrincipalRegistryError("principal_conflict", "registry principals must be a mapping")
+    for principal_id, entry in principals.items():
+        _validate_persisted_principal(principal_id, entry)
     normalized["principals"] = copy.deepcopy(principals)
     projection = _project_skills(normalized["principals"])
     if "skills" in registry and registry["skills"] != projection:
@@ -208,6 +223,11 @@ def build_principal_registry(
     for doc in docs:
         skill_id = doc["skill"]["id"]
         domain = doc["skill"]["domain"]
+        if registry["principals"].get(skill_id, {}).get("kind") == "workload":
+            raise PrincipalRegistryError(
+                "principal_conflict",
+                f"scanned skill conflicts with registered principal: {skill_id}",
+            )
         if doc.get("query", {}).get("primary_domain") not in {None, domain}:
             registry["warnings"].append({"skill_id": skill_id, "domain": domain, "reason": "primary_domain_mismatch"})
         for produced in doc.get("ingest", {}).get("produces", []):
