@@ -251,11 +251,14 @@ Manifest/SCP 内容变化后必须重新注册或重建 Registry；依赖旧 dig
   },
   "domains": {},
   "domain_policies": {},
+  "skills": {},
   "warnings": []
 }
 ```
 
 Registry 的物理文件名由 Host/Runtime 配置决定，不属于协议身份。`0.3.0` 必须继续接受显式传入的旧 `skill-registry.json`，但内部一律规范化为 v0.2 Principal Registry。
+
+顶层 `skills` 仅是从 `principals` 中筛选 `kind: skill` 后确定性生成的只读兼容投影，用于保持现有 `scan-scp` 调用方兼容。它不得独立更新、不得拥有与对应 Principal 不同的 Contract digest，也不是第二份授权权威；任何不一致都返回 `principal_conflict`。
 
 ### 8.1 构建与注册入口
 
