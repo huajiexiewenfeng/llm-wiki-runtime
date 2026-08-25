@@ -285,6 +285,7 @@ register-principal --manifest <principal.yml>
 - 只有显式 `scan-scp --write`、`register-principal` 或迁移动作可以落盘 v0.2。
 - `scan-scp --write` 可以刷新由 SCP 管理的 Skill Contract；`register-principal --refresh` 只能刷新由 Manifest 管理的 Workload Contract，二者不得越权修改对方条目。
 - Registry 存储位置发生变化时必须由显式迁移或 Host 配置完成，不能在读取时猜测并复制。
+- Runtime、Principal、Profile 或 Mapping 升级会使尚未执行的旧 Plan/Approval stale；已经拥有 terminal complete Receipt 且记录 checksum 仍一致的既有记录必须保持只读可召回。升级后的召回使用新的 Principal-aware Query 重新校验实际记录，但不得重写历史 Receipt 或把旧 Receipt 冒充为 `0.3.0` 写入凭证。
 
 ## 9. Mapping v0.2 与兼容
 
@@ -605,7 +606,8 @@ append-log
 7. 随后注册 Observatory Skill Principal。
 8. Skill 与 Harness 分别查询同一条记录。
 9. Skill 使用 Harness Mapping 写入时被拒绝。
-10. Runtime Doctor、Observatory Memory Doctor 与两边回归测试通过。
+10. `0.2.0` 已完成 Receipt 所引用的记录在升级后仍可通过 Harness 只读召回；未执行的 `0.2.0` Plan/Approval 被判定为 stale。
+11. Runtime Doctor、Observatory Memory Doctor 与两边回归测试通过。
 
 ## 17. 交付边界
 
@@ -636,9 +638,10 @@ MCP、Semantic Search 和其他 Workload role 必须在 `0.3.0` 真实验收后�
 9. Principal Contract、Registry、Policy、Profile 或 Mapping 变化会使旧 Plan/Approval stale。
 10. 写入失败关闭，Query 降级诚实，不出现 Principal-aware 到 Legacy 写入的静默回退。
 11. Observatory 完成一次无 Skill 依赖的真实 Workload 闭环，并验证 Skill 与 Harness 共存。
-12. Runtime 现有 Profile、路径、锁、原子 IO、查询能力和全部兼容测试保持通过。
-13. 文档明确 `0.3.0` 的 Principal 是协议身份而非密码学身份。
-14. 没有引入 MCP、向量检索、多用户认证或新的存储核心。
+12. `0.2.0` terminal complete Receipt 的记录保持只读可召回，未执行的旧 Plan/Approval 不得继续授权写入。
+13. Runtime 现有 Profile、路径、锁、原子 IO、查询能力和全部兼容测试保持通过。
+14. 文档明确 `0.3.0` 的 Principal 是协议身份而非密码学身份。
+15. 没有引入 MCP、向量检索、多用户认证或新的存储核心。
 
 ## 19. 后续入口
 
