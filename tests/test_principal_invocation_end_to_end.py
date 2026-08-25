@@ -8,9 +8,43 @@ import llm_wiki_runtime.invocation as runtime
 from llm_wiki_runtime.invocation import InvocationError, execute_invocation
 from llm_wiki_runtime.mapping import load_ingest_mapping, mapping_digest
 from llm_wiki_runtime.policy import domain_policy_digest
-from llm_wiki_runtime.principal_registry import load_principal_registry
+from llm_wiki_runtime.principal_registry import (
+    build_principal_registry,
+    load_principal_registry,
+    write_principal_registry,
+)
 from llm_wiki_runtime.profile import load_active_profile
-from test_principal_invocation import PrincipalScope, principal_scope, write_request
+from test_principal_invocation import PrincipalScope, principal_scope as base_principal_scope, write_request
+
+
+@pytest.fixture
+def principal_scope(base_principal_scope: PrincipalScope) -> PrincipalScope:
+    scp = base_principal_scope.root / "demo-skill.scp.yml"
+    scp.write_text(
+        "\n".join(
+            [
+                "scp_version: v0.1",
+                "skill:",
+                "  id: demo-skill",
+                "  domain: demo",
+                "llm_wiki:",
+                "  profile: demo",
+                "query:",
+                "  primary_domain: demo",
+                "  supports: []",
+                "ingest:",
+                "  produces:",
+                "    - domain: demo",
+                "      record_type: demo_record",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    registered = build_principal_registry(
+        [scp], load_principal_registry(base_principal_scope.registry), {}, {}
+    )
+    write_principal_registry(registered, base_principal_scope.registry)
+    return base_principal_scope
 
 
 def invoke(principal_scope: PrincipalScope, operation: str, payload: dict) -> dict:
@@ -136,15 +170,29 @@ def test_workload_can_copy_write_log_and_read_back(principal_scope: PrincipalSco
 
 
 def test_non_owner_skill_cannot_use_workload_mapping(principal_scope: PrincipalScope):
+    registry = load_principal_registry(principal_scope.registry)
+    assert {"demo-harness", "demo-skill"}.issubset(registry["principals"])
+
+    target = principal_scope.root / ".llm-wiki" / "domains" / "demo" / "skill-denied.md"
     with pytest.raises(InvocationError) as exc:
         execute_invocation(
-            write_request(principal_id="other-harness", scope_root=str(principal_scope.root)),
+            write_request(
+                principal_id="demo-skill",
+                scope_root=str(principal_scope.root),
+                payload={
+                    "record_type": "demo_record",
+                    "variables": {"record_id": "skill-denied"},
+                    "refs": {},
+                    "content_file": str(principal_scope.content),
+                },
+            ),
             registry_path=principal_scope.registry,
             profile_path=principal_scope.profile,
             mapping_path=principal_scope.mapping,
         )
 
     assert exc.value.code == "mapping_owner_mismatch"
+    assert not target.exists()
 
 
 def test_failed_principal_write_does_not_fall_back(principal_scope: PrincipalScope, monkeypatch):
