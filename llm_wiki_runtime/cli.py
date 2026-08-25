@@ -12,6 +12,13 @@ from .graph_export import export_graphs
 from .ingest import prepare_excerpt, write_excerpt_snapshot
 from .invocation import InvocationError, execute_invocation, load_invocation
 from .mapping import load_ingest_mapping, validate_ingest_mapping
+from .principal import load_principal_manifest, principal_contract_digest
+from .principal_registry import (
+    PrincipalRegistryError,
+    load_principal_registry,
+    register_workload_principal,
+    write_principal_registry,
+)
 from .profile import load_profile
 from .record_lookup import find_records
 from .runtime import (
@@ -152,6 +159,11 @@ def build_parser() -> argparse.ArgumentParser:
     invoke.add_argument("--profile-path")
     invoke.add_argument("--mapping-path")
     invoke.add_argument("--domain-policies-json")
+
+    register = sub.add_parser("register-principal")
+    register.add_argument("--manifest", required=True)
+    register.add_argument("--registry-path", required=True)
+    register.add_argument("--refresh", action="store_true")
 
     scan_scp = sub.add_parser("scan-scp")
     scan_scp.add_argument("--scp-path-json", required=True)
@@ -341,18 +353,59 @@ def main(argv: list[str] | None = None) -> int:
             )
             exit_code = 1 if payload.get("result", {}).get("status") == "read_denied" else 0
             return emit(payload, exit_code)
+        if args.command == "register-principal":
+            registry_path = Path(args.registry_path)
+            registry = (
+                load_principal_registry(registry_path)
+                if registry_path.exists()
+                else {
+                    "version": "v0.2",
+                    "principals": {},
+                    "skills": {},
+                    "domains": {},
+                    "domain_policies": {},
+                    "warnings": [],
+                }
+            )
+            manifest = load_principal_manifest(Path(args.manifest))
+            principal_id = manifest["principal"]["id"]
+            existing = registry["principals"].get(principal_id)
+            registered = register_workload_principal(registry, manifest, refresh=args.refresh)
+            write_principal_registry(registered, registry_path)
+            status = (
+                "already_exists"
+                if existing is not None
+                and existing.get("contract_digest") == principal_contract_digest(manifest)
+                else "ok"
+            )
+            return emit(
+                {
+                    "status": status,
+                    "principal_id": principal_id,
+                    "registry_path": str(registry_path),
+                }
+            )
         if args.command == "scan-scp":
+            output_path = Path(args.output) if args.output else None
+            existing_registry = (
+                load_principal_registry(output_path)
+                if args.write and output_path is not None and output_path.exists()
+                else None
+            )
             registry = build_registry(
                 [Path(item) for item in json.loads(args.scp_path_json)],
                 json.loads(args.domain_policies_json) if args.domain_policies_json else None,
                 json.loads(args.caller_groups_json),
+                existing_registry=existing_registry,
             )
             payload = {"status": "ok", **registry}
             if args.write:
-                registry_path = write_registry(registry, Path(args.output) if args.output else None)
+                registry_path = write_registry(registry, output_path)
                 payload["registry_path"] = str(registry_path)
             return emit(payload)
         return emit({"status": "invalid_command", "command": args.command}, 2)
+    except PrincipalRegistryError as exc:
+        return emit({"status": exc.code, "error": str(exc)}, 2)
     except InvocationError as exc:
         return emit({"status": exc.code, "error": str(exc)}, 2)
     except (ValueError, FileExistsError, json.JSONDecodeError) as exc:

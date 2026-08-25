@@ -114,7 +114,7 @@ llm-wiki version
 预期响应：
 
 ```json
-{"status":"ok","version":"0.2.0"}
+{"status":"ok","version":"0.3.0"}
 ```
 
 ## 用户实际体验
@@ -177,6 +177,92 @@ my-domain-copilot/
 
 完整流程参见 [Domain Skill 5 分钟接入手册](docs/guides/domain-skill-integration-quickstart.zh.md)，其中第 1–5 步由 LLM 执行，第 6 步以后由人完成真实验收。
 
+## Skill 与 Workload 两种入口（0.3）
+
+既有 Skill 保持 SCP 兼容流程：发布 `scp.yml`，再由维护流程执行
+`scan-scp --scp-path-json ... --write` 刷新 Skill 条目。受治理的 Workload
+（例如 Domain Harness）使用 `principal.yml`，并且必须显式注册：
+
+```yaml
+principal_version: v0.1
+principal:
+  id: research-harness
+  kind: workload
+  role: domain_harness
+  domain: research
+llm_wiki:
+  profile: research
+  fallback_mode: evidence_only
+query:
+  primary_domain: research
+  supports: []
+ingest:
+  produces:
+    - domain: research
+      record_type: research_note
+```
+
+```powershell
+llm-wiki register-principal --manifest .\principal.yml --registry-path .\principal-registry.json
+llm-wiki scan-scp --scp-path-json '[".\\my-skill\\scp.yml"]' --write --output .\principal-registry.json
+```
+
+Registry 顶层 `skills` 是从 `principals` 中按 `kind: skill` 确定性生成的只读
+兼容投影，不是第二份授权来源，也不得被独立编辑。`scan-scp --write` 只刷新
+SCP 来源的 Skill，同时保留已注册 Workload。
+
+`principal.id` 是用于契约和审计绑定的协议身份；它不是密码、证书、签名密钥，
+也不代表加密学身份。
+
+新 Workload 统一使用 Principal-aware `invoke` Envelope。下面是完整 Query
+示例，从已初始化的绝对工作区精确查询记录：
+
+```json
+{
+  "protocol_version": "v0.1",
+  "request_id": "req-query-001",
+  "principal_id": "research-harness",
+  "operation": "find_records",
+  "scope_root": "C:\\work\\research-project",
+  "payload": {
+    "record_type": "research_note",
+    "lookup_value": "note-001"
+  }
+}
+```
+
+```powershell
+llm-wiki invoke --request .\request.query.json --registry-path .\principal-registry.json --profile-path .\llm-wiki-profile.yml
+```
+
+下面是完整写入示例；它在调用既有确定性写入 Core 前绑定 Workload、活动
+Profile 和 v0.2 Mapping：
+
+```json
+{
+  "protocol_version": "v0.1",
+  "request_id": "req-write-001",
+  "principal_id": "research-harness",
+  "operation": "write_record",
+  "scope_root": "C:\\work\\research-project",
+  "mapping_id": "research-note-import",
+  "payload": {
+    "record_type": "research_note",
+    "variables": {"record_id": "note-001"},
+    "refs": {"source_id": "source-001"},
+    "content_file": "C:\\work\\research-project\\prepared-note.md"
+  }
+}
+```
+
+```powershell
+llm-wiki invoke --request .\request.write.json --registry-path .\principal-registry.json --profile-path .\llm-wiki-profile.yml --mapping-path .\ingest-mapping.yml
+```
+
+Workload Invocation 失败时不得静默回退到旧写入命令。旧 CLI 仅为
+Skill/operator 兼容保留，不能宣称获得 Workload 授权。Runtime 0.2 中已经
+完成的记录仍可读取；旧契约下尚未完成的审批一律 stale，必须重新校验后才能写入。
+
 ## CLI 能力面
 
 CLI 是 Skill 的执行契约，不是主要的终端用户界面。
@@ -187,7 +273,7 @@ CLI 是 Skill 的执行契约，不是主要的终端用户界面。
 | 持久写入 | `copy-source`、`write-record`、`register-artifact`、`append-log` |
 | 上下文读取 | `find-records`、`load-context-pack` |
 | Ingest 准备 | `prepare-excerpt` |
-| 契约与发现 | `validate-mapping`、`scan-scp` |
+| 契约与发现 | `validate-mapping`、`scan-scp`、`register-principal` |
 | 离线图谱 | `graph-export` |
 
 `find-records` 只对 Profile 声明的 frontmatter 字段执行精确匹配，不搜索
@@ -257,6 +343,16 @@ read_denied
 runtime_unavailable
 io_error
 unexpected_error
+principal_not_found
+principal_conflict
+principal_contract_stale
+principal_kind_unsupported
+principal_role_unsupported
+principal_domain_mismatch
+capability_denied
+mapping_owner_mismatch
+operation_not_allowed
+invalid_invocation
 ```
 
 `ok`、`enabled` 和 `already_exists` 表示成功。其他状态必须进入调用方 Domain Skill 定义的降级流程，不能被描述为成功写入。

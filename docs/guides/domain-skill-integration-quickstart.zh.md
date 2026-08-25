@@ -30,6 +30,91 @@ my-domain-copilot/
 
 不要让 Domain Skill 直接写 `.llm-wiki`，所有读写都走 runtime CLI。
 
+### 0.3：选择 Skill/SCP 兼容入口或 Workload 入口
+
+普通业务 Skill 继续使用本章的 `scp.yml`，由维护流程执行
+`scan-scp --scp-path-json ... --write`。受治理的 Harness 是 Workload，必须额外
+携带并显式注册 `principal.yml`，不能把 Workload 当作 SCP Skill：
+
+```yaml
+principal_version: v0.1
+principal:
+  id: my-domain-harness
+  kind: workload
+  role: domain_harness
+  domain: my-domain
+llm_wiki:
+  profile: my-domain
+  fallback_mode: evidence_only
+query:
+  primary_domain: my-domain
+  supports: []
+ingest:
+  produces:
+    - domain: my-domain
+      record_type: knowledge_note
+```
+
+```powershell
+llm-wiki register-principal --manifest .\principal.yml --registry-path .\principal-registry.json
+llm-wiki scan-scp --scp-path-json '[".\\my-business-skill\\scp.yml"]' --write --output .\principal-registry.json
+```
+
+顶层 `skills` 是 Registry `principals` 中 `kind: skill` 的确定性只读投影，
+用于兼容旧调用；它不是独立授权来源，不能独立修改。扫描 SCP 只能刷新
+Skill 条目，且必须保留已注册 Workload。
+
+`principal.id` 是协议中的主体标识，用于契约 digest 与审计绑定；它不是密码、
+证书、签名密钥或任何加密学身份保证。
+
+Workload 通过一个 `invoke` 请求调用 Runtime。完整 Query 请求和命令如下：
+
+```json
+{
+  "protocol_version": "v0.1",
+  "request_id": "req-query-001",
+  "principal_id": "my-domain-harness",
+  "operation": "find_records",
+  "scope_root": "C:\\work\\my-domain-project",
+  "payload": {
+    "record_type": "knowledge_note",
+    "lookup_value": "note-001"
+  }
+}
+```
+
+```powershell
+llm-wiki invoke --request .\request.query.json --registry-path .\principal-registry.json --profile-path .\llm-wiki-profile.yml
+```
+
+写入必须同时绑定 Workload、活动 Profile 和 v0.2 Mapping（其中
+`owner_principal_id: my-domain-harness`），完整请求和命令如下：
+
+```json
+{
+  "protocol_version": "v0.1",
+  "request_id": "req-write-001",
+  "principal_id": "my-domain-harness",
+  "operation": "write_record",
+  "scope_root": "C:\\work\\my-domain-project",
+  "mapping_id": "my-domain-import",
+  "payload": {
+    "record_type": "knowledge_note",
+    "variables": {"record_id": "note-001"},
+    "refs": {"source_id": "source-001"},
+    "content_file": "C:\\work\\my-domain-project\\prepared-note.md"
+  }
+}
+```
+
+```powershell
+llm-wiki invoke --request .\request.write.json --registry-path .\principal-registry.json --profile-path .\llm-wiki-profile.yml --mapping-path .\ingest-mapping.yml
+```
+
+Workload Invocation 失败时不得静默回退到旧 `write-record`、`copy-source`、
+`append-log` 等命令；旧命令只保留给 Skill/operator 兼容使用。Runtime 0.2
+已经完成的记录仍可读取，但旧契约下待处理的批准为 stale，必须重新校验后才可写入。
+
 ### 第 2 步：定义 Domain Profile
 
 最小 `llm-wiki-profile.yml`：

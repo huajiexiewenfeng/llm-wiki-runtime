@@ -1,12 +1,60 @@
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
 from llm_wiki_runtime.runtime import init_profile
 from llm_wiki_runtime.principal import load_principal_manifest
 from llm_wiki_runtime.principal_registry import register_workload_principal, write_principal_registry
+
+
+def write_skill_scp(tmp_path: Path) -> Path:
+    path = tmp_path / "demo.scp.yml"
+    path.write_text(
+        """scp_version: v0.1
+skill:
+  id: demo-skill
+  domain: demo
+llm_wiki:
+  profile: demo
+query:
+  primary_domain: demo
+  supports: []
+ingest:
+  produces:
+    - domain: demo
+      record_type: demo_record
+""",
+        encoding="utf-8",
+    )
+    return path
+
+
+def write_workload_manifest(tmp_path: Path) -> Path:
+    path = tmp_path / "demo.principal.yml"
+    path.write_text(
+        """principal_version: v0.1
+principal:
+  id: demo-harness
+  kind: workload
+  role: domain_harness
+  domain: demo
+llm_wiki:
+  profile: demo
+  fallback_mode: evidence_only
+query:
+  primary_domain: demo
+  supports: []
+ingest:
+  produces:
+    - domain: demo
+      record_type: demo_revision
+""",
+        encoding="utf-8",
+    )
+    return path
 
 
 def test_cli_help_module_imports():
@@ -30,7 +78,7 @@ def test_cli_version_outputs_json():
     assert result.returncode == 0
     payload = json.loads(result.stdout)
     assert payload["status"] == "ok"
-    assert payload["version"] == "0.2.0"
+    assert payload["version"] == "0.3.0"
 
 
 def test_cli_version_includes_standard_response_fields():
@@ -103,6 +151,65 @@ def test_cli_scan_scp_outputs_registry(tmp_path):
     payload = json.loads(result.stdout)
     assert payload["status"] == "ok"
     assert payload["skills"]["ai-radar-newsroom"]["domain"] == "ai-radar"
+
+
+def test_cli_register_principal_is_idempotent(tmp_path):
+    manifest = write_workload_manifest(tmp_path)
+    registry = tmp_path / "registry.json"
+    command = [
+        sys.executable,
+        "-m",
+        "llm_wiki_runtime.cli",
+        "register-principal",
+        "--manifest",
+        str(manifest),
+        "--registry-path",
+        str(registry),
+    ]
+
+    first = subprocess.run(command, text=True, capture_output=True, check=False)
+    second = subprocess.run(command, text=True, capture_output=True, check=False)
+
+    assert first.returncode == second.returncode == 0
+    assert json.loads(first.stdout)["status"] == "ok"
+    assert json.loads(second.stdout)["status"] == "already_exists"
+
+
+def test_cli_scan_scp_preserves_workload_entry(tmp_path):
+    manifest = write_workload_manifest(tmp_path)
+    scp = write_skill_scp(tmp_path)
+    registry = tmp_path / "registry.json"
+    register = [
+        sys.executable,
+        "-m",
+        "llm_wiki_runtime.cli",
+        "register-principal",
+        "--manifest",
+        str(manifest),
+        "--registry-path",
+        str(registry),
+    ]
+    scan = [
+        sys.executable,
+        "-m",
+        "llm_wiki_runtime.cli",
+        "scan-scp",
+        "--scp-path-json",
+        json.dumps([str(scp)]),
+        "--write",
+        "--output",
+        str(registry),
+    ]
+
+    assert subprocess.run(register, text=True, capture_output=True, check=False).returncode == 0
+    completed = subprocess.run(scan, text=True, capture_output=True, check=False)
+    payload = json.loads(completed.stdout)
+    stored = json.loads(registry.read_text(encoding="utf-8"))
+
+    assert completed.returncode == 0
+    assert payload["status"] == "ok"
+    assert set(stored["principals"]) == {"demo-harness", "demo-skill"}
+    assert set(stored["skills"]) == {"demo-skill"}
 
 
 def test_cli_append_profile_log_is_idempotent(tmp_path):
