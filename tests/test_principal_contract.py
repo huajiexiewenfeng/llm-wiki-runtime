@@ -73,6 +73,22 @@ def test_rejects_unsupported_workload_role(tmp_path: Path):
         load_principal_manifest(path)
 
 
+def test_rejects_non_string_principal_kind(tmp_path: Path):
+    path = tmp_path / "principal.yml"
+    write_manifest(path, WORKLOAD.replace("kind: workload", "kind: []"))
+
+    with pytest.raises(ValueError, match="unsupported principal kind"):
+        load_principal_manifest(path)
+
+
+def test_rejects_non_string_workload_role(tmp_path: Path):
+    path = tmp_path / "principal.yml"
+    write_manifest(path, WORKLOAD.replace("role: domain_harness", "role: []"))
+
+    with pytest.raises(ValueError, match="unsupported workload role"):
+        load_principal_manifest(path)
+
+
 def test_rejects_unsafe_principal_id(tmp_path: Path):
     path = tmp_path / "principal.yml"
     write_manifest(path, WORKLOAD.replace("ai-research-observatory-harness", "../unsafe"))

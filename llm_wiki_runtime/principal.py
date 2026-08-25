@@ -58,7 +58,7 @@ def validate_principal_contract(contract: dict, expected_kind: str | None = None
     if not isinstance(principal, dict):
         raise ValueError("principal identity must be a mapping")
     kind = principal.get("kind")
-    if kind not in SUPPORTED_KINDS:
+    if not isinstance(kind, str) or kind not in SUPPORTED_KINDS:
         raise ValueError(f"unsupported principal kind: {kind!r}")
     if expected_kind is not None and kind != expected_kind:
         raise ValueError(f"expected {expected_kind} principal, got {kind!r}")
@@ -71,8 +71,10 @@ def validate_principal_contract(contract: dict, expected_kind: str | None = None
     validate_slug(principal["id"])
     validate_slug(principal["domain"])
 
-    if kind == "workload" and principal["role"] not in SUPPORTED_WORKLOAD_ROLES:
-        raise ValueError(f"unsupported workload role: {principal['role']!r}")
+    if kind == "workload":
+        role = principal["role"]
+        if not isinstance(role, str) or role not in SUPPORTED_WORKLOAD_ROLES:
+            raise ValueError(f"unsupported workload role: {role!r}")
 
     query = contract.get("query")
     if not isinstance(query, dict) or query.get("primary_domain") != principal["domain"]:
