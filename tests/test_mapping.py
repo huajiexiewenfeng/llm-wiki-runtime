@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+import llm_wiki_runtime.mapping as mapping_module
 from llm_wiki_runtime.mapping import load_ingest_mapping, validate_ingest_mapping
 from llm_wiki_runtime.principal import load_principal_manifest
 from llm_wiki_runtime.principal_registry import register_workload_principal
@@ -186,6 +187,66 @@ def test_mapping_rejects_two_owner_fields(tmp_path):
     path = write_v02_mapping(tmp_path, include_legacy_owner=True)
 
     with pytest.raises(ValueError, match="exactly one owner"):
+        load_ingest_mapping(path)
+
+
+@pytest.mark.parametrize(
+    ("version", "owner_field", "first_owner", "second_owner"),
+    [
+        ("v0.1", "owner_skill_id", "demo-skill", "other-skill"),
+        ("v0.1", "owner_skill_id", "demo-skill", "demo-skill"),
+        ("v0.2", "owner_principal_id", "demo-harness", "other-harness"),
+        ("v0.2", "owner_principal_id", "demo-harness", "demo-harness"),
+    ],
+)
+def test_mapping_rejects_duplicate_owner_field(
+    tmp_path,
+    version,
+    owner_field,
+    first_owner,
+    second_owner,
+):
+    path = tmp_path / "duplicate-owner.yml"
+    path.write_text(
+        MAPPING_TEXT.replace("  version: v0.1", f"  version: {version}").replace(
+            "  owner_skill_id: hr-resume-screening-copilot",
+            f"  {owner_field}: {first_owner}\n  {owner_field}: {second_owner}",
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="duplicate owner field"):
+        load_ingest_mapping(path)
+
+
+@pytest.mark.parametrize("version", ["[v0.2]", "[]", "''"])
+def test_mapping_rejects_non_string_or_empty_version(tmp_path, version):
+    path = tmp_path / "invalid-version.yml"
+    path.write_text(
+        MAPPING_TEXT.replace("  version: v0.1", f"  version: {version}"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="mapping version must be a non-empty string"):
+        load_ingest_mapping(path)
+
+
+def test_mapping_rejects_mapping_version_object(tmp_path, monkeypatch):
+    original_parse_scalar = mapping_module.parse_scalar
+
+    def parse_version_object(value: str):
+        if value.strip() == "version-object":
+            return {"version": "v0.2"}
+        return original_parse_scalar(value)
+
+    monkeypatch.setattr(mapping_module, "parse_scalar", parse_version_object)
+    path = tmp_path / "object-version.yml"
+    path.write_text(
+        MAPPING_TEXT.replace("  version: v0.1", "  version: version-object"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="mapping version must be a non-empty string"):
         load_ingest_mapping(path)
 
 

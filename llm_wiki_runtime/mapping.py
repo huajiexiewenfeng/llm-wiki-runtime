@@ -24,6 +24,7 @@ REQUIRED_MAPPING_FIELDS = {
 def load_ingest_mapping(path: Path) -> dict:
     lines = path.read_text(encoding="utf-8").splitlines()
     mapping_values: dict[str, object] = {}
+    seen_owner_fields: set[str] = set()
     products: list[dict] = []
     section: str | None = None
     current_product: dict | None = None
@@ -55,6 +56,10 @@ def load_ingest_mapping(path: Path) -> dict:
             continue
         if section == "mapping" and indent == 2 and ":" in stripped:
             key, value = stripped.split(":", 1)
+            if key in OWNER_FIELDS:
+                if key in seen_owner_fields:
+                    raise ValueError(f"duplicate owner field: {key}")
+                seen_owner_fields.add(key)
             mapping_values[key] = parse_scalar(value)
             continue
         if section == "produces" and stripped.startswith("- "):
@@ -72,6 +77,8 @@ def load_ingest_mapping(path: Path) -> dict:
     if missing:
         raise ValueError(f"missing mapping fields: {missing}")
     version = mapping_values["version"]
+    if not isinstance(version, str) or not version:
+        raise ValueError("mapping version must be a non-empty string")
     if version not in SUPPORTED_MAPPING_VERSIONS:
         raise ValueError(f"unsupported mapping version: {mapping_values['version']}")
     owner_fields = OWNER_FIELDS & set(mapping_values)
