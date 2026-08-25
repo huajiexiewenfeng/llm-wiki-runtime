@@ -16,6 +16,8 @@ class PrincipalScope:
     registry: Path
     profile: Path
     mapping: Path
+    source: Path
+    content: Path
 
 
 def _write(path: Path, lines: list[str]) -> Path:
@@ -44,6 +46,10 @@ def principal_scope(tmp_path: Path) -> PrincipalScope:
             "  produces:",
             "    - domain: demo",
             "      record_type: demo_record",
+            "    - domain: demo",
+            "      artifact_type: demo_artifact",
+            "    - domain: demo",
+            "      log_type: demo_event",
         ],
     )
     registry = tmp_path / "principals.json"
@@ -69,6 +75,10 @@ def principal_scope(tmp_path: Path) -> PrincipalScope:
             "  produces:",
             "    - domain: demo",
             "      record_type: demo_record",
+            "    - domain: demo",
+            "      artifact_type: demo_artifact",
+            "    - domain: demo",
+            "      log_type: demo_event",
         ],
     )
     registered = register_workload_principal(registered, load_principal_manifest(other_manifest))
@@ -95,6 +105,13 @@ def principal_scope(tmp_path: Path) -> PrincipalScope:
             "      match_fields: [record_id, display_name]",
             "      return_fields: [record_id, display_name]",
             "      max_results: 20",
+            "artifacts:",
+            "  types: [demo_artifact]",
+            "logs:",
+            "  types:",
+            "    demo_event:",
+            "      path: logs/demo-events.jsonl",
+            "      mode: append_only",
         ],
     )
     init_profile(tmp_path, profile, "local", "demo-test")
@@ -113,17 +130,23 @@ def principal_scope(tmp_path: Path) -> PrincipalScope:
         tmp_path / "mapping.yml",
         [
             "mapping:",
-            "  id: demo-ingest",
+            "  id: demo-mapping",
             "  version: v0.2",
             "  domain: demo",
             "  owner_principal_id: demo-harness",
-            "  source_types: [demo_source]",
+            "  source_types: [approved_demo]",
             "  instruction_ref: references/demo.md",
             "produces:",
             "  - record_type: demo_record",
+            "  - artifact_type: demo_artifact",
+            "  - log_type: demo_event",
         ],
     )
-    return PrincipalScope(tmp_path, registry, profile, mapping)
+    source = tmp_path / "source.json"
+    source.write_text('{"demo": true}', encoding="utf-8")
+    content = tmp_path / "content.md"
+    content.write_text("Demo record.", encoding="utf-8")
+    return PrincipalScope(tmp_path, registry, profile, mapping, source, content)
 
 
 def request(**overrides) -> dict:
@@ -135,6 +158,21 @@ def request(**overrides) -> dict:
         "scope_root": "C:/scope",
         "payload": {},
     }
+    value.update(overrides)
+    return value
+
+
+def write_request(**overrides) -> dict:
+    value = request(
+        operation="write_record",
+        mapping_id="demo-mapping",
+        payload={
+            "record_type": "demo_record",
+            "variables": {"record_id": "record-1"},
+            "refs": {},
+            "content_file": "C:/content.md",
+        },
+    )
     value.update(overrides)
     return value
 
@@ -235,7 +273,7 @@ def test_mapping_path_and_id_must_appear_together(
 
 def test_resolve_validates_profile_mapping_and_returns_contract_digests(principal_scope: PrincipalScope):
     result = execute_invocation(
-        request(scope_root=str(principal_scope.root), mapping_id="demo-ingest"),
+        request(scope_root=str(principal_scope.root), mapping_id="demo-mapping"),
         registry_path=principal_scope.registry,
         profile_path=principal_scope.profile,
         mapping_path=principal_scope.mapping,
@@ -264,7 +302,7 @@ def test_mapping_preflight_rejects_a_different_registered_owner(principal_scope:
 
     with pytest.raises(InvocationError) as exc:
         execute_invocation(
-            request(scope_root=str(principal_scope.root), mapping_id="demo-ingest"),
+            request(scope_root=str(principal_scope.root), mapping_id="demo-mapping"),
             registry_path=principal_scope.registry,
             mapping_path=principal_scope.mapping,
         )
@@ -366,5 +404,73 @@ def test_load_invocation_rejects_large_file(tmp_path: Path):
 
     with pytest.raises(InvocationError) as exc:
         load_invocation(path, max_bytes=10)
+
+    assert exc.value.code == "invalid_invocation"
+
+
+@pytest.mark.parametrize(
+    ("mapping_path", "profile_path"),
+    [(None, "present"), ("present", None)],
+)
+def test_write_invocation_requires_mapping_and_profile_paths(
+    principal_scope: PrincipalScope, mapping_path: str | None, profile_path: str | None
+):
+    with pytest.raises(InvocationError) as exc:
+        execute_invocation(
+            write_request(scope_root=str(principal_scope.root)),
+            registry_path=principal_scope.registry,
+            mapping_path=principal_scope.mapping if mapping_path else None,
+            profile_path=principal_scope.profile if profile_path else None,
+        )
+
+    assert exc.value.code == "invalid_invocation"
+
+
+def test_write_invocation_rejects_unknown_payload_key_before_core(principal_scope: PrincipalScope, monkeypatch):
+    import llm_wiki_runtime.invocation as runtime
+
+    calls = []
+
+    def unexpected_write(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("Runtime Core must not be called after payload validation denial")
+
+    monkeypatch.setattr(runtime, "write_record", unexpected_write, raising=False)
+    with pytest.raises(InvocationError) as exc:
+        execute_invocation(
+            write_request(
+                scope_root=str(principal_scope.root),
+                payload={
+                    "record_type": "demo_record",
+                    "variables": {"record_id": "record-1"},
+                    "refs": {},
+                    "content_file": str(principal_scope.content),
+                    "extra": True,
+                },
+            ),
+            registry_path=principal_scope.registry,
+            profile_path=principal_scope.profile,
+            mapping_path=principal_scope.mapping,
+        )
+
+    assert exc.value.code == "invalid_invocation"
+    assert calls == []
+
+
+def test_write_invocation_does_not_accept_a_legacy_mapping(principal_scope: PrincipalScope):
+    principal_scope.mapping.write_text(
+        principal_scope.mapping.read_text(encoding="utf-8")
+        .replace("version: v0.2", "version: v0.1")
+        .replace("owner_principal_id", "owner_skill_id"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(InvocationError) as exc:
+        execute_invocation(
+            write_request(scope_root=str(principal_scope.root)),
+            registry_path=principal_scope.registry,
+            profile_path=principal_scope.profile,
+            mapping_path=principal_scope.mapping,
+        )
 
     assert exc.value.code == "invalid_invocation"
