@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from llm_wiki_runtime.scp import build_registry, load_scp
+from llm_wiki_runtime.scp import build_registry, load_scp, write_registry
 
 
 def write_scp(path: Path, text: str) -> None:
@@ -248,3 +248,32 @@ def test_build_registry_rejects_support_record_type_not_produced(tmp_path):
 
     assert registry["skills"]["learning-companion"]["supports"] == []
     assert any(item["reason"] == "support_record_type_not_produced" for item in registry["warnings"])
+
+
+def test_scp_registry_aliases_write_v02_principal_registry(tmp_path):
+    scp = tmp_path / "demo.scp.yml"
+    write_scp(
+        scp,
+        """scp_version: v0.1
+skill:
+  id: demo-skill
+  domain: demo
+llm_wiki:
+  profile: demo
+query:
+  primary_domain: demo
+  supports: []
+ingest:
+  produces:
+    - domain: demo
+      record_type: demo_record
+""",
+    )
+
+    registry = build_registry([scp], domain_policies={})
+    target = write_registry(registry, tmp_path / "registry.json")
+
+    assert registry["version"] == "v0.2"
+    assert registry["skills"] == registry["principals"]
+    assert registry["skills"]["demo-skill"]["scp_path"] == str(scp)
+    assert target.exists()
