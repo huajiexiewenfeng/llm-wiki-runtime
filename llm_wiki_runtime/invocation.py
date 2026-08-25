@@ -36,11 +36,11 @@ def load_invocation(path: Path, max_bytes: int = 1_000_000) -> dict:
     if type(max_bytes) is not int or max_bytes < 1:
         raise InvocationError("invalid_invocation", "max_bytes must be a positive integer")
     try:
-        if not path.is_file():
-            raise InvocationError("invalid_invocation", f"invocation request is not a file: {path}")
-        if path.stat().st_size > max_bytes:
+        with path.open("rb") as handle:
+            raw = handle.read(max_bytes + 1)
+        if len(raw) > max_bytes:
             raise InvocationError("invalid_invocation", "invocation request exceeds the byte limit")
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(raw.decode("utf-8"))
     except InvocationError:
         raise
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -71,12 +71,12 @@ def execute_invocation(
     if operation not in READ_OPERATIONS:
         raise InvocationError("operation_not_allowed", f"read invocation does not support operation: {operation}")
 
-    profile, resolved_profile_path = _load_profile(scope_root, profile_path)
-    policies = load_domain_policies(domain_policies)
-    mapping_observation = _validate_mapping(
-        envelope, mapping_path, registry, profile
+    profile, resolved_profile_path = _load_bound_profile(
+        scope_root, profile_path, principal, operation
     )
-    target_domain = _target_domain(envelope["payload"], principal["domain"])
+    payload = _normalize_payload(operation, envelope["payload"], profile)
+    target_domain = _target_domain(payload, principal["domain"])
+    policies = _domain_policies(domain_policies)
     try:
         authorization = authorize_query(
             principal=principal,
@@ -88,6 +88,10 @@ def execute_invocation(
     except AuthorizationError as exc:
         raise InvocationError(_authorization_error_code(exc), str(exc)) from exc
 
+    mapping_observation = _validate_mapping(
+        envelope, mapping_path, registry, profile, envelope["principal_id"]
+    )
+
     authorization.update(
         {
             "principal_contract_digest": principal["contract_digest"],
@@ -98,14 +102,12 @@ def execute_invocation(
         authorization["mapping_digest"] = mapping_observation["mapping_digest"]
 
     if operation == "resolve":
-        _require_empty_payload(envelope["payload"])
         result = {
             "status": "ready",
             "profile_id": profile.id,
             "profile_path": str(resolved_profile_path),
         }
     elif operation == "find_records":
-        payload = _find_records_payload(envelope["payload"])
         result = find_records(
             scope_root,
             payload["record_type"],
@@ -116,7 +118,6 @@ def execute_invocation(
             caller_groups=[],
         )
     else:
-        payload = _load_context_payload(envelope["payload"], profile)
         result = load_context_pack(
             scope_root / ".llm-wiki",
             payload["include"],
@@ -180,21 +181,39 @@ def _scope_root(value: str) -> Path:
     return path
 
 
-def _load_profile(scope_root: Path, profile_path: Path | None):
+def _load_bound_profile(scope_root: Path, profile_path: Path | None, principal: dict, operation: str):
     try:
-        path = active_profile_path(scope_root, profile_path)
-        return load_active_profile(scope_root, profile_path), path
+        active_path = active_profile_path(scope_root)
+        active_profile = load_active_profile(scope_root)
+        _assert_profile_binding(active_profile, principal)
+        if profile_path is None:
+            return active_profile, active_path
+        explicit_profile = load_profile(profile_path)
+        _assert_profile_binding(explicit_profile, principal)
+        if operation == "resolve":
+            return explicit_profile, profile_path
+        return active_profile, active_path
     except (OSError, ValueError) as exc:
         raise InvocationError("invalid_invocation", f"active profile is invalid: {exc}") from exc
 
 
-def _validate_mapping(envelope: dict, mapping_path: Path | None, registry: dict, profile) -> dict | None:
+def _assert_profile_binding(profile, principal: dict) -> None:
+    declared_profile = principal.get("profile")
+    if not isinstance(declared_profile, str) or profile.id != declared_profile:
+        raise ValueError("profile does not match the principal contract")
+
+
+def _validate_mapping(
+    envelope: dict, mapping_path: Path | None, registry: dict, profile, principal_id: str
+) -> dict | None:
     if mapping_path is None:
         return None
     try:
         mapping = load_ingest_mapping(mapping_path)
         if mapping["id"] != envelope["mapping_id"]:
             raise InvocationError("invalid_invocation", "mapping_id does not match the mapping contract")
+        if mapping["owner_principal_id"] != principal_id:
+            raise InvocationError("mapping_owner_mismatch", "mapping owner does not match request principal")
         validation = validate_ingest_mapping(mapping, registry, profile)
     except InvocationError:
         raise
@@ -211,6 +230,27 @@ def _target_domain(payload: dict, principal_domain: str) -> str:
 def _require_empty_payload(payload: dict) -> None:
     if payload:
         raise InvocationError("invalid_invocation", "resolve payload must be empty")
+
+
+def _normalize_payload(operation: str, payload: dict, profile) -> dict:
+    if operation == "resolve":
+        _require_empty_payload(payload)
+        return {}
+    if operation == "find_records":
+        return _find_records_payload(payload)
+    return _load_context_payload(payload, profile)
+
+
+def _domain_policies(value: dict | None) -> dict:
+    if value is not None and not isinstance(value, dict):
+        raise InvocationError("invalid_invocation", "domain_policies must be an object")
+    try:
+        policies = load_domain_policies(value)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise InvocationError("invalid_invocation", "domain_policies must be an object") from exc
+    if not isinstance(policies, dict):
+        raise InvocationError("invalid_invocation", "domain_policies must be an object")
+    return policies
 
 
 def _find_records_payload(payload: dict) -> dict:

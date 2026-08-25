@@ -51,6 +51,27 @@ def principal_scope(tmp_path: Path) -> PrincipalScope:
         {"version": "v0.2", "principals": {}, "skills": {}, "domains": {}, "domain_policies": {}, "warnings": []},
         load_principal_manifest(manifest),
     )
+    other_manifest = _write(
+        tmp_path / "other.principal.yml",
+        [
+            "principal_version: v0.1",
+            "principal:",
+            "  id: other-harness",
+            "  kind: workload",
+            "  role: domain_harness",
+            "  domain: demo",
+            "llm_wiki:",
+            "  profile: demo",
+            "query:",
+            "  primary_domain: demo",
+            "  supports: []",
+            "ingest:",
+            "  produces:",
+            "    - domain: demo",
+            "      record_type: demo_record",
+        ],
+    )
+    registered = register_workload_principal(registered, load_principal_manifest(other_manifest))
     write_principal_registry(registered, registry)
     profile = _write(
         tmp_path / "profile.yml",
@@ -230,6 +251,110 @@ def test_resolve_rejects_mismatched_mapping_id(principal_scope: PrincipalScope):
             request(scope_root=str(principal_scope.root), mapping_id="other"),
             registry_path=principal_scope.registry,
             mapping_path=principal_scope.mapping,
+        )
+
+    assert exc.value.code == "invalid_invocation"
+
+
+def test_mapping_preflight_rejects_a_different_registered_owner(principal_scope: PrincipalScope):
+    principal_scope.mapping.write_text(
+        principal_scope.mapping.read_text(encoding="utf-8").replace("demo-harness", "other-harness"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(InvocationError) as exc:
+        execute_invocation(
+            request(scope_root=str(principal_scope.root), mapping_id="demo-ingest"),
+            registry_path=principal_scope.registry,
+            mapping_path=principal_scope.mapping,
+        )
+
+    assert exc.value.code == "mapping_owner_mismatch"
+
+
+def test_resolve_rejects_payload_before_authorization(principal_scope: PrincipalScope):
+    with pytest.raises(InvocationError) as exc:
+        execute_invocation(
+            request(scope_root=str(principal_scope.root), payload={"target_domain": "secret"}),
+            registry_path=principal_scope.registry,
+            domain_policies={"secret": {"readable_by": []}},
+        )
+
+    assert exc.value.code == "invalid_invocation"
+
+
+def test_resolve_rejects_explicit_profile_not_declared_by_principal(principal_scope: PrincipalScope):
+    other_profile = _write(
+        principal_scope.root / "other-profile.yml",
+        [
+            "profile:",
+            "  id: other",
+            "  version: v0.1",
+        ],
+    )
+
+    with pytest.raises(InvocationError) as exc:
+        execute_invocation(
+            request(scope_root=str(principal_scope.root)),
+            registry_path=principal_scope.registry,
+            profile_path=other_profile,
+        )
+
+    assert exc.value.code == "invalid_invocation"
+
+
+def test_find_records_observes_the_active_profile_digest(principal_scope: PrincipalScope):
+    alternate_profile = _write(
+        principal_scope.root / "alternate-profile.yml",
+        [
+            "profile:",
+            "  id: demo",
+            "  version: v0.1",
+            "read_rules:",
+            "  context_pack:",
+            "    include: [other/**]",
+        ],
+    )
+    invocation = request(
+        operation="find_records",
+        scope_root=str(principal_scope.root),
+        payload={"record_type": "demo_record", "lookup_value": "record-1"},
+    )
+
+    observed = execute_invocation(
+        invocation,
+        registry_path=principal_scope.registry,
+        profile_path=alternate_profile,
+    )
+    active = execute_invocation(invocation, registry_path=principal_scope.registry)
+
+    assert observed["authorization"]["profile_digest"] == active["authorization"]["profile_digest"]
+
+
+def test_load_invocation_uses_a_bounded_binary_read(tmp_path: Path):
+    path = tmp_path / "request.json"
+    expected = {"request_id": "req-demo"}
+    path.write_text(json.dumps(expected), encoding="utf-8")
+
+    class BinaryOnlyPath:
+        def open(self, *args, **kwargs):
+            return path.open(*args, **kwargs)
+
+        def stat(self):
+            raise AssertionError("unbounded path helper used")
+
+        def read_text(self, *args, **kwargs):
+            raise AssertionError("unbounded path helper used")
+
+    assert load_invocation(BinaryOnlyPath(), max_bytes=100) == expected
+
+
+def test_invocation_rejects_non_object_domain_policies(principal_scope: PrincipalScope):
+    with pytest.raises(InvocationError) as exc:
+        execute_invocation(
+            request(scope_root=str(principal_scope.root)),
+            registry_path=principal_scope.registry,
+            domain_policies=[],
         )
 
     assert exc.value.code == "invalid_invocation"
