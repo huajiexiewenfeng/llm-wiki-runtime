@@ -1,4 +1,9 @@
-from llm_wiki_runtime.policy import assert_read_allowed, effective_instruction_policy, load_domain_policies
+from llm_wiki_runtime.policy import (
+    assert_read_allowed,
+    domain_policy_digest,
+    effective_instruction_policy,
+    load_domain_policies,
+)
 
 
 def test_readable_by_rejects_hr_by_default():
@@ -50,3 +55,11 @@ def test_load_domain_policies_reads_host_file(tmp_path, monkeypatch):
     policy_file.write_text('{"ai-radar": {"readable_by": ["*"]}}', encoding="utf-8")
     monkeypatch.setenv("LLM_WIKI_DOMAIN_POLICIES", str(policy_file))
     assert load_domain_policies()["ai-radar"]["readable_by"] == ["*"]
+
+
+def test_domain_policy_digest_is_stable_for_equivalent_mapping_order():
+    first = {"hr": {"readable_by": ["learning"], "instruction_policy_override": "data_only"}}
+    second = {"hr": {"instruction_policy_override": "data_only", "readable_by": ["learning"]}}
+
+    assert domain_policy_digest(first) == domain_policy_digest(second)
+    assert domain_policy_digest(first).startswith("sha256:")
