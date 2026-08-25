@@ -241,6 +241,52 @@ def test_invocation_response_canonicalizes_a_legacy_raw_registry_digest(principa
     assert result["authorization"]["registry_digest"] == "sha256:" + "a" * 64
 
 
+def test_invocation_authorization_observation_has_an_exact_contract_key_set(principal_scope: PrincipalScope):
+    resolve = execute_invocation(
+        request(scope_root=str(principal_scope.root), mapping_id="demo-mapping"),
+        registry_path=principal_scope.registry,
+        profile_path=principal_scope.profile,
+        mapping_path=principal_scope.mapping,
+    )
+    read = execute_invocation(
+        request(
+            operation="find_records",
+            scope_root=str(principal_scope.root),
+            payload={"record_type": "demo_record", "lookup_value": "record-1"},
+        ),
+        registry_path=principal_scope.registry,
+    )
+    write = execute_invocation(
+        write_request(
+            scope_root=str(principal_scope.root),
+            payload={
+                "record_type": "demo_record",
+                "variables": {"record_id": "record-3"},
+                "refs": {},
+                "content_file": str(principal_scope.content),
+            },
+        ),
+        registry_path=principal_scope.registry,
+        profile_path=principal_scope.profile,
+        mapping_path=principal_scope.mapping,
+    )
+    required = {
+        "operation",
+        "domain",
+        "decision",
+        "registry_digest",
+        "policy_digest",
+        "profile_digest",
+        "mapping_digest",
+    }
+
+    assert set(resolve["authorization"]) == required
+    assert set(write["authorization"]) == required
+    assert set(read["authorization"]) == required - {"mapping_digest"}
+    for response in (resolve, read, write):
+        assert response["principal"]["contract_digest"].startswith("sha256:")
+
+
 def test_unknown_invocation_operation_is_rejected(principal_scope: PrincipalScope):
     with pytest.raises(InvocationError) as exc:
         execute_invocation(

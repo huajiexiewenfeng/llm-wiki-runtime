@@ -106,7 +106,6 @@ def execute_invocation(
     authorization.update(
         {
             "registry_digest": _canonical_registry_digest(_registry_digest(registry)),
-            "principal_contract_digest": principal["contract_digest"],
             "profile_digest": _profile_digest(profile),
         }
     )
