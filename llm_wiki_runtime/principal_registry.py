@@ -211,7 +211,7 @@ def build_principal_registry(
     registry["principals"] = {
         principal_id: copy.deepcopy(entry)
         for principal_id, entry in previous["principals"].items()
-        if entry.get("origin") != "legacy_scp"
+        if not (entry.get("origin") == "legacy_scp" and entry.get("kind") == "skill")
     }
     preserved_principal_ids = set(registry["principals"])
     by_domain: dict[str, list[dict]] = {}

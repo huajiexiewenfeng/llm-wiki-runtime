@@ -162,6 +162,13 @@ read_rules:
     exclude: [sources/originals/**, .meta/**]
     max_files: 30
     max_chars_per_file: 4000
+  record_lookup:
+    knowledge_note:
+      identity_field: record_id
+      display_field: title
+      match_fields: [title]
+      return_fields: [record_id, title]
+      max_results: 10
 ```
 
 Profile 由 Domain 维护；runtime 只执行其中的路径、引用和读写规则。

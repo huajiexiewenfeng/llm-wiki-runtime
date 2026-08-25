@@ -9,6 +9,7 @@ import pytest
 from llm_wiki_runtime.runtime import init_profile
 from llm_wiki_runtime.principal import load_principal_manifest
 from llm_wiki_runtime.principal_registry import register_workload_principal, write_principal_registry
+from llm_wiki_runtime.profile import load_profile
 
 
 def write_skill_scp(tmp_path: Path) -> Path:
@@ -157,6 +158,25 @@ def test_cli_scan_scp_outputs_registry(tmp_path):
     payload = json.loads(result.stdout)
     assert payload["status"] == "ok"
     assert payload["skills"]["ai-radar-newsroom"]["domain"] == "ai-radar"
+
+
+def test_quickstart_profile_configures_the_documented_find_records_query(tmp_path):
+    guide = (
+        Path(__file__).resolve().parents[1]
+        / "docs/guides/domain-skill-integration-quickstart.zh.md"
+    ).read_text(encoding="utf-8")
+    profile_yaml = guide.split("最小 `llm-wiki-profile.yml`：\n\n```yaml\n", 1)[1].split("\n```", 1)[0]
+    profile_path = tmp_path / "llm-wiki-profile.yml"
+    profile_path.write_text(profile_yaml, encoding="utf-8")
+
+    profile = load_profile(profile_path)
+    rule = profile.record_lookup["knowledge_note"]
+
+    assert rule.identity_field == "record_id"
+    assert rule.display_field == "title"
+    assert rule.match_fields == ("title",)
+    assert rule.return_fields == ("record_id", "title")
+    assert rule.max_results == 10
 
 
 def test_cli_register_principal_is_idempotent(tmp_path):

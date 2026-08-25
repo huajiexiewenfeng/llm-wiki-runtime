@@ -96,6 +96,21 @@ def test_scan_scp_preserves_registered_workload(tmp_path):
     assert set(rebuilt["principals"]) == {"demo-skill", "demo-harness"}
 
 
+def test_scan_scp_defensively_preserves_legacy_origin_workload(tmp_path):
+    registry = empty_registry()
+    registry["principals"]["unexpected-workload"] = {
+        "kind": "workload",
+        "role": "domain_harness",
+        "domain": "demo",
+        "origin": "legacy_scp",
+    }
+
+    rebuilt = build_principal_registry([write_skill_scp(tmp_path)], registry, {}, {})
+
+    assert "unexpected-workload" in rebuilt["principals"]
+    assert "unexpected-workload" not in rebuilt["skills"]
+
+
 def test_registering_identical_workload_is_idempotent(tmp_path):
     manifest = load_principal_manifest(write_workload_manifest(tmp_path))
     registry = register_workload_principal(empty_registry(), manifest)
