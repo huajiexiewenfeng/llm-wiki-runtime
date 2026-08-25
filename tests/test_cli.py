@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -32,17 +33,22 @@ ingest:
     return path
 
 
-def write_workload_manifest(tmp_path: Path) -> Path:
-    path = tmp_path / "demo.principal.yml"
+def write_workload_manifest(
+    tmp_path: Path,
+    *,
+    principal_id: str = "demo-harness",
+    profile: str = "demo",
+) -> Path:
+    path = tmp_path / f"{principal_id}-{profile}.principal.yml"
     path.write_text(
         """principal_version: v0.1
 principal:
-  id: demo-harness
+  id: {principal_id}
   kind: workload
   role: domain_harness
   domain: demo
 llm_wiki:
-  profile: demo
+  profile: {profile}
   fallback_mode: evidence_only
 query:
   primary_domain: demo
@@ -51,7 +57,7 @@ ingest:
   produces:
     - domain: demo
       record_type: demo_revision
-""",
+""".format(principal_id=principal_id, profile=profile),
         encoding="utf-8",
     )
     return path
@@ -210,6 +216,103 @@ def test_cli_scan_scp_preserves_workload_entry(tmp_path):
     assert payload["status"] == "ok"
     assert set(stored["principals"]) == {"demo-harness", "demo-skill"}
     assert set(stored["skills"]) == {"demo-skill"}
+
+
+def test_cli_scan_scp_default_registry_preserves_workload_and_policy_state(tmp_path, monkeypatch):
+    manifest = write_workload_manifest(tmp_path)
+    scp = write_skill_scp(tmp_path)
+    registry_path = tmp_path / "default-registry.json"
+    registry = register_workload_principal(
+        {
+            "version": "v0.2",
+            "principals": {},
+            "skills": {},
+            "domains": {"unscanned": {"operator_note": "retain"}},
+            "domain_policies": {"demo": {"readable_by": ["demo"]}},
+            "warnings": [{"reason": "retained_operator_warning"}],
+        },
+        load_principal_manifest(manifest),
+    )
+    write_principal_registry(registry, registry_path)
+    monkeypatch.setenv("LLM_WIKI_SKILL_REGISTRY", str(registry_path))
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "llm_wiki_runtime.cli",
+            "scan-scp",
+            "--scp-path-json",
+            json.dumps([str(scp)]),
+            "--write",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+        env=os.environ.copy(),
+    )
+
+    stored = json.loads(registry_path.read_text(encoding="utf-8"))
+    assert completed.returncode == 0
+    assert set(stored["principals"]) == {"demo-harness", "demo-skill"}
+    assert set(stored["skills"]) == {"demo-skill"}
+    assert stored["domain_policies"] == {"demo": {"readable_by": ["demo"]}}
+    assert stored["warnings"] == [{"reason": "retained_operator_warning"}]
+    assert stored["domains"]["unscanned"] == {"operator_note": "retain"}
+
+
+def test_cli_register_principal_requires_refresh_for_changed_contract(tmp_path):
+    registry = tmp_path / "registry.json"
+    initial = write_workload_manifest(tmp_path)
+    changed = write_workload_manifest(tmp_path, profile="demo-v2")
+
+    first = subprocess.run(
+        [sys.executable, "-m", "llm_wiki_runtime.cli", "register-principal", "--manifest", str(initial), "--registry-path", str(registry)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    stale = subprocess.run(
+        [sys.executable, "-m", "llm_wiki_runtime.cli", "register-principal", "--manifest", str(changed), "--registry-path", str(registry)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    refreshed = subprocess.run(
+        [sys.executable, "-m", "llm_wiki_runtime.cli", "register-principal", "--manifest", str(changed), "--registry-path", str(registry), "--refresh"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert first.returncode == 0
+    assert stale.returncode == 2
+    assert json.loads(stale.stdout)["status"] == "principal_contract_stale"
+    assert refreshed.returncode == 0
+    assert json.loads(refreshed.stdout)["status"] == "ok"
+
+
+def test_cli_register_principal_rejects_skill_id_conflict(tmp_path):
+    scp = write_skill_scp(tmp_path)
+    manifest = write_workload_manifest(tmp_path, principal_id="demo-skill")
+    registry = tmp_path / "registry.json"
+
+    scan = subprocess.run(
+        [sys.executable, "-m", "llm_wiki_runtime.cli", "scan-scp", "--scp-path-json", json.dumps([str(scp)]), "--write", "--output", str(registry)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    conflict = subprocess.run(
+        [sys.executable, "-m", "llm_wiki_runtime.cli", "register-principal", "--manifest", str(manifest), "--registry-path", str(registry)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert scan.returncode == 0
+    assert conflict.returncode == 2
+    assert json.loads(conflict.stdout)["status"] == "principal_conflict"
 
 
 def test_cli_append_profile_log_is_idempotent(tmp_path):

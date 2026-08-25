@@ -87,8 +87,23 @@ Workload 通过一个 `invoke` 请求调用 Runtime。完整 Query 请求和命�
 llm-wiki invoke --request .\request.query.json --registry-path .\principal-registry.json --profile-path .\llm-wiki-profile.yml
 ```
 
-写入必须同时绑定 Workload、活动 Profile 和 v0.2 Mapping（其中
-`owner_principal_id: my-domain-harness`），完整请求和命令如下：
+写入必须同时绑定 Workload、活动 Profile 和 v0.2 Mapping。Workload 的完整
+`ingest-mapping.yml` 如下（`owner_principal_id` 必须等于注册的主体）：
+
+```yaml
+mapping:
+  id: my-domain-import
+  version: v0.2
+  domain: my-domain
+  owner_principal_id: my-domain-harness
+  source_types: [user_file]
+  instruction_ref: references/llm-wiki-ingest.md
+
+produces:
+  - record_type: knowledge_note
+```
+
+完整写请求和命令如下：
 
 ```json
 {
@@ -152,6 +167,10 @@ read_rules:
 Profile 由 Domain 维护；runtime 只执行其中的路径、引用和读写规则。
 
 ### 第 3 步：定义 Ingest Mapping
+
+本节的 v0.1 `owner_skill_id` 示例只适用于既有 Skill/SCP 兼容入口；它与
+上面的 Workload `principal.yml` 路径隔离。Workload 写入必须使用上一节的
+v0.2 Mapping 和 `owner_principal_id`，不得以 v0.1 Mapping 静默回退。
 
 最小 `ingest-mapping.yml`：
 

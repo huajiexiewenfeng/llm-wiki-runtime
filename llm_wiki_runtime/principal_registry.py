@@ -199,17 +199,21 @@ def build_principal_registry(
     caller_groups: dict | None,
 ) -> dict:
     previous = normalize_registry(existing_registry or _empty_registry())
-    policies = load_domain_policies(domain_policies)
+    policies = load_domain_policies(
+        domain_policies if domain_policies is not None else previous["domain_policies"]
+    )
     groups_by_skill = caller_groups or {}
     docs = [load_scp(path) for path in scp_paths]
     registry = _empty_registry()
     registry["domain_policies"] = copy.deepcopy(policies)
-    registry["warnings"] = []
+    registry["warnings"] = copy.deepcopy(previous["warnings"])
+    registry["domains"] = copy.deepcopy(previous["domains"])
     registry["principals"] = {
         principal_id: copy.deepcopy(entry)
         for principal_id, entry in previous["principals"].items()
-        if entry.get("kind") == "workload"
+        if entry.get("origin") != "legacy_scp"
     }
+    preserved_principal_ids = set(registry["principals"])
     by_domain: dict[str, list[dict]] = {}
     seen_skill_ids: set[str] = set()
     for doc in docs:
@@ -220,10 +224,15 @@ def build_principal_registry(
         seen_skill_ids.add(skill_id)
         by_domain.setdefault(domain, []).append(doc)
 
+    for domain in by_domain:
+        domain_entry = copy.deepcopy(registry["domains"].get(domain, {}))
+        domain_entry.update({"skills": [], "profiles": [], "produces": [], "supports": []})
+        registry["domains"][domain] = domain_entry
+
     for doc in docs:
         skill_id = doc["skill"]["id"]
         domain = doc["skill"]["domain"]
-        if registry["principals"].get(skill_id, {}).get("kind") == "workload":
+        if skill_id in preserved_principal_ids:
             raise PrincipalRegistryError(
                 "principal_conflict",
                 f"scanned skill conflicts with registered principal: {skill_id}",
@@ -239,7 +248,6 @@ def build_principal_registry(
         except ValueError:
             contract = _contract_from_scp_unchecked(doc)
         registry["principals"][skill_id] = _entry_from_contract(contract, supports, support_filters)
-        registry["domains"].setdefault(domain, {"skills": [], "profiles": [], "produces": [], "supports": []})
         registry["domains"][domain]["skills"].append(skill_id)
         registry["domains"][domain]["profiles"].append(doc.get("llm_wiki", {}).get("profile"))
         registry["domains"][domain]["produces"].extend(produced_types(doc))

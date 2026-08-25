@@ -32,7 +32,7 @@ from .runtime import (
     register_artifact,
     write_record,
 )
-from .scp import build_registry, write_registry
+from .scp import build_registry, skill_registry_path, write_registry
 
 
 def with_response_envelope(payload: dict) -> dict:
@@ -386,7 +386,7 @@ def main(argv: list[str] | None = None) -> int:
                 }
             )
         if args.command == "scan-scp":
-            output_path = Path(args.output) if args.output else None
+            output_path = Path(args.output) if args.output else (skill_registry_path() if args.write else None)
             existing_registry = (
                 load_principal_registry(output_path)
                 if args.write and output_path is not None and output_path.exists()
