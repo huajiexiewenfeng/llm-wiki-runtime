@@ -10,6 +10,7 @@ from . import __version__
 from .config import resolve_config
 from .graph_export import export_graphs
 from .ingest import prepare_excerpt, write_excerpt_snapshot
+from .invocation import InvocationError, execute_invocation, load_invocation
 from .mapping import load_ingest_mapping, validate_ingest_mapping
 from .profile import load_profile
 from .record_lookup import find_records
@@ -144,6 +145,13 @@ def build_parser() -> argparse.ArgumentParser:
     validate_mapping.add_argument("--mapping-path", required=True)
     validate_mapping.add_argument("--registry-path", required=True)
     validate_mapping.add_argument("--profile-path", required=True)
+
+    invoke = sub.add_parser("invoke")
+    invoke.add_argument("--request", required=True)
+    invoke.add_argument("--registry-path", required=True)
+    invoke.add_argument("--profile-path")
+    invoke.add_argument("--mapping-path")
+    invoke.add_argument("--domain-policies-json")
 
     scan_scp = sub.add_parser("scan-scp")
     scan_scp.add_argument("--scp-path-json", required=True)
@@ -323,6 +331,16 @@ def main(argv: list[str] | None = None) -> int:
             registry = json.loads(Path(args.registry_path).read_text(encoding="utf-8"))
             profile = load_profile(Path(args.profile_path))
             return emit(validate_ingest_mapping(mapping, registry, profile))
+        if args.command == "invoke":
+            payload = execute_invocation(
+                load_invocation(Path(args.request)),
+                registry_path=Path(args.registry_path),
+                profile_path=Path(args.profile_path) if args.profile_path else None,
+                mapping_path=Path(args.mapping_path) if args.mapping_path else None,
+                domain_policies=json.loads(args.domain_policies_json) if args.domain_policies_json else None,
+            )
+            exit_code = 1 if payload.get("result", {}).get("status") == "read_denied" else 0
+            return emit(payload, exit_code)
         if args.command == "scan-scp":
             registry = build_registry(
                 [Path(item) for item in json.loads(args.scp_path_json)],
@@ -335,6 +353,8 @@ def main(argv: list[str] | None = None) -> int:
                 payload["registry_path"] = str(registry_path)
             return emit(payload)
         return emit({"status": "invalid_command", "command": args.command}, 2)
+    except InvocationError as exc:
+        return emit({"status": exc.code, "error": str(exc)}, 2)
     except (ValueError, FileExistsError, json.JSONDecodeError) as exc:
         return emit({"status": "validation_error", "error": str(exc)}, 2)
     except (OSError, TimeoutError) as exc:

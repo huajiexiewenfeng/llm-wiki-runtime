@@ -5,6 +5,8 @@ import sys
 import pytest
 
 from llm_wiki_runtime.runtime import init_profile
+from llm_wiki_runtime.principal import load_principal_manifest
+from llm_wiki_runtime.principal_registry import register_workload_principal, write_principal_registry
 
 
 def test_cli_help_module_imports():
@@ -567,3 +569,114 @@ def test_cli_find_records_returns_read_denied_with_exit_one(project_lookup_scope
 
     assert result.returncode == 1
     assert json.loads(result.stdout)["status"] == "read_denied"
+
+
+def test_cli_invoke_emits_principal_aware_result(tmp_path):
+    manifest = tmp_path / "demo.principal.yml"
+    manifest.write_text(
+        "\n".join(
+            [
+                "principal_version: v0.1",
+                "principal:",
+                "  id: demo-harness",
+                "  kind: workload",
+                "  role: domain_harness",
+                "  domain: demo",
+                "llm_wiki:",
+                "  profile: demo",
+                "query:",
+                "  primary_domain: demo",
+                "  supports: []",
+                "ingest:",
+                "  produces:",
+                "    - domain: demo",
+                "      record_type: demo_record",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    registry = tmp_path / "registry.json"
+    write_principal_registry(
+        register_workload_principal(
+            {"version": "v0.2", "principals": {}, "skills": {}, "domains": {}, "domain_policies": {}, "warnings": []},
+            load_principal_manifest(manifest),
+        ),
+        registry,
+    )
+    profile = tmp_path / "profile.yml"
+    profile.write_text(
+        "\n".join(
+            [
+                "profile:",
+                "  id: demo",
+                "  version: v0.1",
+                "read_rules:",
+                "  context_pack:",
+                "    include: [domains/demo/**]",
+                "    exclude: [.meta/**]",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    init_profile(tmp_path, profile, "local", "demo-cli")
+    request_path = tmp_path / "request.json"
+    request_path.write_text(
+        json.dumps(
+            {
+                "protocol_version": "v0.1",
+                "request_id": "req-cli",
+                "principal_id": "demo-harness",
+                "operation": "resolve",
+                "scope_root": str(tmp_path),
+                "payload": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "llm_wiki_runtime.cli",
+            "invoke",
+            "--request",
+            str(request_path),
+            "--registry-path",
+            str(registry),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "ok"
+    assert payload["principal"]["id"] == "demo-harness"
+
+
+def test_cli_invoke_maps_mapping_pair_failure_to_exit_two(tmp_path):
+    request_path = tmp_path / "request.json"
+    request_path.write_text("{}", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "llm_wiki_runtime.cli",
+            "invoke",
+            "--request",
+            str(request_path),
+            "--registry-path",
+            str(tmp_path / "registry.json"),
+            "--mapping-path",
+            str(tmp_path / "mapping.yml"),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert json.loads(result.stdout)["status"] == "invalid_invocation"
