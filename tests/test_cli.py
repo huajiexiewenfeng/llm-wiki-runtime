@@ -1,10 +1,67 @@
 import json
+import os
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
 from llm_wiki_runtime.runtime import init_profile
+from llm_wiki_runtime.principal import load_principal_manifest
+from llm_wiki_runtime.principal_registry import register_workload_principal, write_principal_registry
+from llm_wiki_runtime.profile import load_profile
+
+
+def write_skill_scp(tmp_path: Path) -> Path:
+    path = tmp_path / "demo.scp.yml"
+    path.write_text(
+        """scp_version: v0.1
+skill:
+  id: demo-skill
+  domain: demo
+llm_wiki:
+  profile: demo
+query:
+  primary_domain: demo
+  supports: []
+ingest:
+  produces:
+    - domain: demo
+      record_type: demo_record
+""",
+        encoding="utf-8",
+    )
+    return path
+
+
+def write_workload_manifest(
+    tmp_path: Path,
+    *,
+    principal_id: str = "demo-harness",
+    profile: str = "demo",
+) -> Path:
+    path = tmp_path / f"{principal_id}-{profile}.principal.yml"
+    path.write_text(
+        """principal_version: v0.1
+principal:
+  id: {principal_id}
+  kind: workload
+  role: domain_harness
+  domain: demo
+llm_wiki:
+  profile: {profile}
+  fallback_mode: evidence_only
+query:
+  primary_domain: demo
+  supports: []
+ingest:
+  produces:
+    - domain: demo
+      record_type: demo_revision
+""".format(principal_id=principal_id, profile=profile),
+        encoding="utf-8",
+    )
+    return path
 
 
 def test_cli_help_module_imports():
@@ -28,7 +85,7 @@ def test_cli_version_outputs_json():
     assert result.returncode == 0
     payload = json.loads(result.stdout)
     assert payload["status"] == "ok"
-    assert payload["version"] == "0.2.0"
+    assert payload["version"] == "0.3.0"
 
 
 def test_cli_version_includes_standard_response_fields():
@@ -101,6 +158,181 @@ def test_cli_scan_scp_outputs_registry(tmp_path):
     payload = json.loads(result.stdout)
     assert payload["status"] == "ok"
     assert payload["skills"]["ai-radar-newsroom"]["domain"] == "ai-radar"
+
+
+def test_quickstart_profile_configures_the_documented_find_records_query(tmp_path):
+    guide = (
+        Path(__file__).resolve().parents[1]
+        / "docs/guides/domain-skill-integration-quickstart.zh.md"
+    ).read_text(encoding="utf-8")
+    profile_yaml = guide.split("最小 `llm-wiki-profile.yml`：\n\n```yaml\n", 1)[1].split("\n```", 1)[0]
+    profile_path = tmp_path / "llm-wiki-profile.yml"
+    profile_path.write_text(profile_yaml, encoding="utf-8")
+
+    profile = load_profile(profile_path)
+    rule = profile.record_lookup["knowledge_note"]
+
+    assert rule.identity_field == "record_id"
+    assert rule.display_field == "title"
+    assert rule.match_fields == ("title",)
+    assert rule.return_fields == ("record_id", "title")
+    assert rule.max_results == 10
+
+
+def test_cli_register_principal_is_idempotent(tmp_path):
+    manifest = write_workload_manifest(tmp_path)
+    registry = tmp_path / "registry.json"
+    command = [
+        sys.executable,
+        "-m",
+        "llm_wiki_runtime.cli",
+        "register-principal",
+        "--manifest",
+        str(manifest),
+        "--registry-path",
+        str(registry),
+    ]
+
+    first = subprocess.run(command, text=True, capture_output=True, check=False)
+    second = subprocess.run(command, text=True, capture_output=True, check=False)
+
+    assert first.returncode == second.returncode == 0
+    assert json.loads(first.stdout)["status"] == "ok"
+    assert json.loads(second.stdout)["status"] == "already_exists"
+
+
+def test_cli_scan_scp_preserves_workload_entry(tmp_path):
+    manifest = write_workload_manifest(tmp_path)
+    scp = write_skill_scp(tmp_path)
+    registry = tmp_path / "registry.json"
+    register = [
+        sys.executable,
+        "-m",
+        "llm_wiki_runtime.cli",
+        "register-principal",
+        "--manifest",
+        str(manifest),
+        "--registry-path",
+        str(registry),
+    ]
+    scan = [
+        sys.executable,
+        "-m",
+        "llm_wiki_runtime.cli",
+        "scan-scp",
+        "--scp-path-json",
+        json.dumps([str(scp)]),
+        "--write",
+        "--output",
+        str(registry),
+    ]
+
+    assert subprocess.run(register, text=True, capture_output=True, check=False).returncode == 0
+    completed = subprocess.run(scan, text=True, capture_output=True, check=False)
+    payload = json.loads(completed.stdout)
+    stored = json.loads(registry.read_text(encoding="utf-8"))
+
+    assert completed.returncode == 0
+    assert payload["status"] == "ok"
+    assert set(stored["principals"]) == {"demo-harness", "demo-skill"}
+    assert set(stored["skills"]) == {"demo-skill"}
+
+
+def test_cli_scan_scp_default_registry_preserves_workload_and_policy_state(tmp_path, monkeypatch):
+    manifest = write_workload_manifest(tmp_path)
+    scp = write_skill_scp(tmp_path)
+    registry_path = tmp_path / "default-registry.json"
+    registry = register_workload_principal(
+        {
+            "version": "v0.2",
+            "principals": {},
+            "skills": {},
+            "domains": {"unscanned": {"operator_note": "retain"}},
+            "domain_policies": {"demo": {"readable_by": ["demo"]}},
+            "warnings": [{"reason": "retained_operator_warning"}],
+        },
+        load_principal_manifest(manifest),
+    )
+    write_principal_registry(registry, registry_path)
+    monkeypatch.setenv("LLM_WIKI_SKILL_REGISTRY", str(registry_path))
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "llm_wiki_runtime.cli",
+            "scan-scp",
+            "--scp-path-json",
+            json.dumps([str(scp)]),
+            "--write",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+        env=os.environ.copy(),
+    )
+
+    stored = json.loads(registry_path.read_text(encoding="utf-8"))
+    assert completed.returncode == 0
+    assert set(stored["principals"]) == {"demo-harness", "demo-skill"}
+    assert set(stored["skills"]) == {"demo-skill"}
+    assert stored["domain_policies"] == {"demo": {"readable_by": ["demo"]}}
+    assert stored["warnings"] == [{"reason": "retained_operator_warning"}]
+    assert stored["domains"]["unscanned"] == {"operator_note": "retain"}
+
+
+def test_cli_register_principal_requires_refresh_for_changed_contract(tmp_path):
+    registry = tmp_path / "registry.json"
+    initial = write_workload_manifest(tmp_path)
+    changed = write_workload_manifest(tmp_path, profile="demo-v2")
+
+    first = subprocess.run(
+        [sys.executable, "-m", "llm_wiki_runtime.cli", "register-principal", "--manifest", str(initial), "--registry-path", str(registry)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    stale = subprocess.run(
+        [sys.executable, "-m", "llm_wiki_runtime.cli", "register-principal", "--manifest", str(changed), "--registry-path", str(registry)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    refreshed = subprocess.run(
+        [sys.executable, "-m", "llm_wiki_runtime.cli", "register-principal", "--manifest", str(changed), "--registry-path", str(registry), "--refresh"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert first.returncode == 0
+    assert stale.returncode == 2
+    assert json.loads(stale.stdout)["status"] == "principal_contract_stale"
+    assert refreshed.returncode == 0
+    assert json.loads(refreshed.stdout)["status"] == "ok"
+
+
+def test_cli_register_principal_rejects_skill_id_conflict(tmp_path):
+    scp = write_skill_scp(tmp_path)
+    manifest = write_workload_manifest(tmp_path, principal_id="demo-skill")
+    registry = tmp_path / "registry.json"
+
+    scan = subprocess.run(
+        [sys.executable, "-m", "llm_wiki_runtime.cli", "scan-scp", "--scp-path-json", json.dumps([str(scp)]), "--write", "--output", str(registry)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    conflict = subprocess.run(
+        [sys.executable, "-m", "llm_wiki_runtime.cli", "register-principal", "--manifest", str(manifest), "--registry-path", str(registry)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert scan.returncode == 0
+    assert conflict.returncode == 2
+    assert json.loads(conflict.stdout)["status"] == "principal_conflict"
 
 
 def test_cli_append_profile_log_is_idempotent(tmp_path):
@@ -302,6 +534,9 @@ def write_mapping_cli_contract(tmp_path):
                 "skill:",
                 "  id: hr-resume-screening-copilot",
                 "  domain: hr",
+                "query:",
+                "  primary_domain: hr",
+                "  supports: []",
                 "ingest:",
                 "  produces:",
                 "    - domain: hr",
@@ -564,3 +799,114 @@ def test_cli_find_records_returns_read_denied_with_exit_one(project_lookup_scope
 
     assert result.returncode == 1
     assert json.loads(result.stdout)["status"] == "read_denied"
+
+
+def test_cli_invoke_emits_principal_aware_result(tmp_path):
+    manifest = tmp_path / "demo.principal.yml"
+    manifest.write_text(
+        "\n".join(
+            [
+                "principal_version: v0.1",
+                "principal:",
+                "  id: demo-harness",
+                "  kind: workload",
+                "  role: domain_harness",
+                "  domain: demo",
+                "llm_wiki:",
+                "  profile: demo",
+                "query:",
+                "  primary_domain: demo",
+                "  supports: []",
+                "ingest:",
+                "  produces:",
+                "    - domain: demo",
+                "      record_type: demo_record",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    registry = tmp_path / "registry.json"
+    write_principal_registry(
+        register_workload_principal(
+            {"version": "v0.2", "principals": {}, "skills": {}, "domains": {}, "domain_policies": {}, "warnings": []},
+            load_principal_manifest(manifest),
+        ),
+        registry,
+    )
+    profile = tmp_path / "profile.yml"
+    profile.write_text(
+        "\n".join(
+            [
+                "profile:",
+                "  id: demo",
+                "  version: v0.1",
+                "read_rules:",
+                "  context_pack:",
+                "    include: [domains/demo/**]",
+                "    exclude: [.meta/**]",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    init_profile(tmp_path, profile, "local", "demo-cli")
+    request_path = tmp_path / "request.json"
+    request_path.write_text(
+        json.dumps(
+            {
+                "protocol_version": "v0.1",
+                "request_id": "req-cli",
+                "principal_id": "demo-harness",
+                "operation": "resolve",
+                "scope_root": str(tmp_path),
+                "payload": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "llm_wiki_runtime.cli",
+            "invoke",
+            "--request",
+            str(request_path),
+            "--registry-path",
+            str(registry),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "ok"
+    assert payload["principal"]["id"] == "demo-harness"
+
+
+def test_cli_invoke_maps_mapping_pair_failure_to_exit_two(tmp_path):
+    request_path = tmp_path / "request.json"
+    request_path.write_text("{}", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "llm_wiki_runtime.cli",
+            "invoke",
+            "--request",
+            str(request_path),
+            "--registry-path",
+            str(tmp_path / "registry.json"),
+            "--mapping-path",
+            str(tmp_path / "mapping.yml"),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert json.loads(result.stdout)["status"] == "invalid_invocation"

@@ -114,7 +114,7 @@ llm-wiki version
 Expected response:
 
 ```json
-{"status":"ok","version":"0.2.0"}
+{"status":"ok","version":"0.3.0"}
 ```
 
 ## How Users Experience It
@@ -177,6 +177,97 @@ Integration is not complete after adding declarations. Each business `SKILL.md` 
 
 Use the [5-minute Domain Skill integration guide](docs/guides/domain-skill-integration-quickstart.zh.md) for the complete LLM-executed workflow and human acceptance steps.
 
+## Skill and Workload Entry Modes (0.3)
+
+Existing Skills keep the compatible SCP flow: publish `scp.yml`, then an
+operator or maintain workflow runs `scan-scp --scp-path-json ... --write` to
+refresh the Skill entries. A `principal.yml` is for a governed Workload (for
+example, a domain harness), which is registered explicitly:
+
+```yaml
+principal_version: v0.1
+principal:
+  id: research-harness
+  kind: workload
+  role: domain_harness
+  domain: research
+llm_wiki:
+  profile: research
+  fallback_mode: evidence_only
+query:
+  primary_domain: research
+  supports: []
+ingest:
+  produces:
+    - domain: research
+      record_type: research_note
+```
+
+```powershell
+llm-wiki register-principal --manifest .\principal.yml --registry-path .\principal-registry.json
+llm-wiki scan-scp --scp-path-json '[".\\my-skill\\scp.yml"]' --write --output .\principal-registry.json
+```
+
+The Registry's top-level `skills` value is a deterministic, read-only
+projection of `principals` filtered to `kind: skill`; it is not a second
+authorization source and must not be edited independently. `scan-scp --write`
+refreshes SCP-origin Skills while preserving registered Workloads.
+
+`principal.id` is a protocol identity used for contract and audit binding. It
+is not a password, certificate, signing key, or claim of cryptographic identity.
+
+New Workloads use one Principal-aware `invoke` envelope. This complete Query
+example requests an exact record lookup from an already initialized absolute
+workspace:
+
+```json
+{
+  "protocol_version": "v0.1",
+  "request_id": "req-query-001",
+  "principal_id": "research-harness",
+  "operation": "find_records",
+  "scope_root": "C:\\work\\research-project",
+  "payload": {
+    "record_type": "research_note",
+    "lookup_value": "note-001"
+  }
+}
+```
+
+```powershell
+llm-wiki invoke --request .\request.query.json --registry-path .\principal-registry.json --profile-path .\llm-wiki-profile.yml
+```
+
+This complete write example binds the Workload, active Profile, and v0.2
+Mapping before calling the existing deterministic write core:
+
+```json
+{
+  "protocol_version": "v0.1",
+  "request_id": "req-write-001",
+  "principal_id": "research-harness",
+  "operation": "write_record",
+  "scope_root": "C:\\work\\research-project",
+  "mapping_id": "research-note-import",
+  "payload": {
+    "record_type": "research_note",
+    "variables": {"record_id": "note-001"},
+    "refs": {"source_id": "source-001"},
+    "content_file": "C:\\work\\research-project\\prepared-note.md"
+  }
+}
+```
+
+```powershell
+llm-wiki invoke --request .\request.write.json --registry-path .\principal-registry.json --profile-path .\llm-wiki-profile.yml --mapping-path .\ingest-mapping.yml
+```
+
+If a Workload Invocation fails, it must not silently fall back to legacy write
+commands. Legacy CLI commands remain available only for Skill/operator
+compatibility and cannot claim Workload authorization. Runtime 0.2 records
+that completed remain readable; pending approvals created under an older
+contract are stale and must be revalidated before writing.
+
 ## CLI Surface
 
 The CLI is an execution contract for Skills, not the primary end-user interface.
@@ -187,7 +278,7 @@ The CLI is an execution contract for Skills, not the primary end-user interface.
 | Durable writes | `copy-source`, `write-record`, `register-artifact`, `append-log` |
 | Context reads | `find-records`, `load-context-pack` |
 | Ingest preparation | `prepare-excerpt` |
-| Contracts and discovery | `validate-mapping`, `scan-scp` |
+| Contracts and discovery | `validate-mapping`, `scan-scp`, `register-principal` |
 | Offline graph views | `graph-export` |
 
 `find-records` performs only declared exact matches against frontmatter fields.
@@ -257,6 +348,16 @@ read_denied
 runtime_unavailable
 io_error
 unexpected_error
+principal_not_found
+principal_conflict
+principal_contract_stale
+principal_kind_unsupported
+principal_role_unsupported
+principal_domain_mismatch
+capability_denied
+mapping_owner_mismatch
+operation_not_allowed
+invalid_invocation
 ```
 
 `ok`, `enabled`, and `already_exists` are successful outcomes. Other statuses must follow the calling Domain Skill's documented fallback and must never be presented as successful writes.

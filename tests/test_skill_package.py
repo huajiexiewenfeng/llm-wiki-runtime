@@ -114,3 +114,20 @@ def test_phase_one_skills_do_not_claim_person_context_views_or_raw_writes():
     assert "person_core" not in combined
     assert "ambiguous_person" not in combined
     assert "Do not write directly inside .llm-wiki" in combined
+
+
+def test_status_reference_publishes_principal_invocation_outcomes():
+    text = read("references/status-v0.1.md")
+    for status in (
+        "principal_not_found",
+        "principal_conflict",
+        "principal_contract_stale",
+        "principal_kind_unsupported",
+        "principal_role_unsupported",
+        "principal_domain_mismatch",
+        "capability_denied",
+        "mapping_owner_mismatch",
+        "operation_not_allowed",
+        "invalid_invocation",
+    ):
+        assert status in text

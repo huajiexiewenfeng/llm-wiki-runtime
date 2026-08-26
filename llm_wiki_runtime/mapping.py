@@ -1,18 +1,21 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 
 from .models import Profile
+from .principal_registry import resolve_principal
 from .profile import parse_scalar
-from .scp import load_scp
 
 
 CONTRACT_KINDS = ("record_type", "artifact_type", "log_type")
+SUPPORTED_MAPPING_VERSIONS = frozenset({"v0.1", "v0.2"})
+OWNER_FIELDS = frozenset({"owner_skill_id", "owner_principal_id"})
 REQUIRED_MAPPING_FIELDS = {
     "id",
     "version",
     "domain",
-    "owner_skill_id",
     "source_types",
     "instruction_ref",
 }
@@ -21,6 +24,7 @@ REQUIRED_MAPPING_FIELDS = {
 def load_ingest_mapping(path: Path) -> dict:
     lines = path.read_text(encoding="utf-8").splitlines()
     mapping_values: dict[str, object] = {}
+    seen_owner_fields: set[str] = set()
     products: list[dict] = []
     section: str | None = None
     current_product: dict | None = None
@@ -52,6 +56,10 @@ def load_ingest_mapping(path: Path) -> dict:
             continue
         if section == "mapping" and indent == 2 and ":" in stripped:
             key, value = stripped.split(":", 1)
+            if key in OWNER_FIELDS:
+                if key in seen_owner_fields:
+                    raise ValueError(f"duplicate owner field: {key}")
+                seen_owner_fields.add(key)
             mapping_values[key] = parse_scalar(value)
             continue
         if section == "produces" and stripped.startswith("- "):
@@ -68,9 +76,19 @@ def load_ingest_mapping(path: Path) -> dict:
     missing = sorted(REQUIRED_MAPPING_FIELDS - set(mapping_values))
     if missing:
         raise ValueError(f"missing mapping fields: {missing}")
-    if mapping_values["version"] != "v0.1":
+    version = mapping_values["version"]
+    if not isinstance(version, str) or not version:
+        raise ValueError("mapping version must be a non-empty string")
+    if version not in SUPPORTED_MAPPING_VERSIONS:
         raise ValueError(f"unsupported mapping version: {mapping_values['version']}")
-    for field in ("id", "domain", "owner_skill_id", "instruction_ref"):
+    owner_fields = OWNER_FIELDS & set(mapping_values)
+    if len(owner_fields) != 1:
+        raise ValueError("mapping must declare exactly one owner field")
+    expected_owner_field = "owner_skill_id" if version == "v0.1" else "owner_principal_id"
+    if owner_fields != {expected_owner_field}:
+        raise ValueError(f"mapping {version} requires {expected_owner_field}")
+    owner_field = next(iter(owner_fields))
+    for field in ("id", "domain", owner_field, "instruction_ref"):
         if not isinstance(mapping_values[field], str) or not mapping_values[field]:
             raise ValueError(f"mapping {field} must be a non-empty string")
     source_types = mapping_values["source_types"]
@@ -80,38 +98,54 @@ def load_ingest_mapping(path: Path) -> dict:
         raise ValueError("mapping source_types entries must be non-empty strings")
     if not products:
         raise ValueError("mapping produces must not be empty")
-    return {**mapping_values, "produces": products, "_path": str(path)}
+    normalized = {
+        **{key: value for key, value in mapping_values.items() if key not in OWNER_FIELDS},
+        "owner_principal_id": mapping_values[owner_field],
+        "produces": products,
+        "_path": str(path),
+    }
+    if version == "v0.1":
+        normalized["_legacy_owner_skill_id"] = mapping_values[owner_field]
+    return normalized
 
 
-def contracts_from_scp(doc: dict) -> set[tuple[str, str]]:
+def contracts_from_principal(entry: dict) -> set[tuple[str, str]]:
     contracts: set[tuple[str, str]] = set()
-    for product in doc.get("ingest", {}).get("produces", []):
+    for product in entry.get("produces", []):
         kinds = [kind for kind in CONTRACT_KINDS if kind in product]
         if len(kinds) == 1:
             contracts.add((kinds[0], product[kinds[0]]))
     return contracts
 
 
+def mapping_digest(mapping: dict) -> str:
+    body = {
+        key: value
+        for key, value in mapping.items()
+        if key not in {"_path", "_legacy_owner_skill_id"}
+    }
+    canonical = json.dumps(
+        body,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(canonical).hexdigest()
+
+
 def validate_ingest_mapping(mapping: dict, registry: dict, profile: Profile) -> dict:
-    owner_skill_id = mapping["owner_skill_id"]
-    owner_entry = registry.get("skills", {}).get(owner_skill_id)
-    if owner_entry is None:
-        raise ValueError(f"mapping owner is not registered: {owner_skill_id}")
+    owner_principal_id = mapping["owner_principal_id"]
+    owner_entry = resolve_principal(registry, owner_principal_id)
     if mapping["domain"] != owner_entry.get("domain"):
         raise ValueError("mapping domain does not match owner domain")
-    scp_path = owner_entry.get("scp_path")
-    if not isinstance(scp_path, str) or not scp_path:
-        raise ValueError(f"mapping owner has no SCP path: {owner_skill_id}")
-    owner_scp = load_scp(Path(scp_path))
-    if owner_scp.get("skill", {}).get("id") != owner_skill_id:
-        raise ValueError("mapping owner id does not match owner SCP")
-    owner_contracts = contracts_from_scp(owner_scp)
+    owner_contracts = contracts_from_principal(owner_entry)
 
     for product in mapping["produces"]:
         kind = next(kind for kind in CONTRACT_KINDS if kind in product)
         value = product[kind]
         if (kind, value) not in owner_contracts:
-            raise ValueError(f"owner SCP does not produce {kind}: {value}")
+            raise ValueError(f"owner principal does not produce {kind}: {value}")
         if kind == "record_type" and value not in profile.write_rules:
             raise ValueError(f"profile does not declare record: {value}")
         if kind == "artifact_type" and value not in profile.artifact_types:
@@ -119,9 +153,14 @@ def validate_ingest_mapping(mapping: dict, registry: dict, profile: Profile) -> 
         if kind == "log_type" and value not in profile.log_rules:
             raise ValueError(f"profile does not declare log: {value}")
 
-    return {
+    result = {
         "status": "ok",
         "mapping_id": mapping["id"],
-        "owner_skill_id": owner_skill_id,
+        "owner_principal_id": owner_principal_id,
+        "principal_kind": owner_entry["kind"],
+        "mapping_digest": mapping_digest(mapping),
         "produces": mapping["produces"],
     }
+    if "_legacy_owner_skill_id" in mapping:
+        result["owner_skill_id"] = mapping["_legacy_owner_skill_id"]
+    return result

@@ -8,6 +8,7 @@ __pycache__/
 .venv/
 .venv-graph-smoke/
 .superpowers/
+.worktrees/
 .coverage
 htmlcov/
 .mypy_cache/
