@@ -179,6 +179,16 @@ my-domain-copilot/
 
 ## Skill 与 Workload 两种入口（0.3）
 
+复制契约前先选择 Principal 拓扑：
+
+| 模式 | Runtime 调用主体 | 参考 |
+| --- | --- | --- |
+| Skill-only | 通过 SCP 注册的 Domain Skill | HR 兼容案例 |
+| Harness-only | 独立 `workload/domain_harness` | Observatory Harness |
+| Skill+Harness | 同一 Domain 内两个独立 Principal | Observatory 完整案例 |
+
+LLM 应先阅读[Skill + Harness Runtime 0.3 评估与实施手册](docs/guides/skill-harness-llm-wiki-runtime-integration.zh.md)，完成项目审计和模式判定后再创建契约。
+
 既有 Skill 保持 SCP 兼容流程：发布 `scp.yml`，再由维护流程执行
 `scan-scp --scp-path-json ... --write` 刷新 Skill 条目。受治理的 Workload
 （例如 Domain Harness）使用 `principal.yml`，并且必须显式注册：
@@ -375,6 +385,7 @@ V0.1 明确不提供：
 
 ### 示例
 
+- [AI Research Observatory Skill+Harness 完整参考](examples/ai-research-observatory/README.zh-CN.md)
 - [HR Profile](examples/hr/llm-wiki-profile.yml)
 - [DevOps Profile](examples/devops/llm-wiki-profile.yml)
 - [HR SCP](examples/scp/hr-resume-screening.scp.yml)
@@ -384,6 +395,7 @@ V0.1 明确不提供：
 
 ### 指南
 
+- [Skill + Harness Runtime 0.3 评估与实施手册](docs/guides/skill-harness-llm-wiki-runtime-integration.zh.md)
 - [Domain Skill 通用接入手册](docs/guides/domain-skill-integration-quickstart.zh.md)
 - [HR 接入指南](docs/guides/hr-llm-wiki-integration.zh.md)
 - [HR 实施指南](docs/guides/hr-skill-llm-wiki-runtime-implementation.zh.md)

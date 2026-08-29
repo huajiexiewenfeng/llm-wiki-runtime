@@ -1,0 +1,14 @@
+{
+  "protocol_version": "v0.1",
+  "request_id": "example-harness-copy-source-001",
+  "principal_id": "ai-research-observatory-harness",
+  "operation": "copy_source",
+  "scope_root": "__ABSOLUTE_DOMAIN_WORKSPACE__",
+  "mapping_id": "ai-research-observatory-memory",
+  "payload": {
+    "source": "__ABSOLUTE_EVIDENCE_SNAPSHOT__",
+    "logical_path": "sources/originals/ai-research-observatory/example-source-001.md",
+    "source_type": "approved_direction_revision",
+    "metadata": {}
+  }
+}

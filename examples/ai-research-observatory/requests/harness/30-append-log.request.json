@@ -1,0 +1,16 @@
+{
+  "protocol_version": "v0.1",
+  "request_id": "example-harness-append-log-001",
+  "principal_id": "ai-research-observatory-harness",
+  "operation": "append_log",
+  "scope_root": "__ABSOLUTE_DOMAIN_WORKSPACE__",
+  "mapping_id": "ai-research-observatory-memory",
+  "payload": {
+    "log_type": "observatory_memory_event",
+    "record": {
+      "event_id": "example-observatory-memory-event-001",
+      "action": "research_direction_revision_promoted",
+      "record_id": "example-record-001"
+    }
+  }
+}

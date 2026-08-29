@@ -1,0 +1,10 @@
+mapping:
+  id: ai-research-observatory-memory
+  version: v0.2
+  domain: ai-research-observatory
+  owner_principal_id: ai-research-observatory-harness
+  source_types: [approved_direction_revision]
+  instruction_ref: src/ai_observatory/memory/service.py
+produces:
+  - record_type: research_direction_revision
+  - log_type: observatory_memory_event

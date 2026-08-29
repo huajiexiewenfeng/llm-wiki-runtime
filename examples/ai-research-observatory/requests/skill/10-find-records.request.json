@@ -1,0 +1,12 @@
+{
+  "protocol_version": "v0.1",
+  "request_id": "example-skill-find-records-001",
+  "principal_id": "ai-research-observatory",
+  "operation": "find_records",
+  "scope_root": "__ABSOLUTE_DOMAIN_WORKSPACE__",
+  "payload": {
+    "record_type": "research_direction_revision",
+    "lookup_value": "example-record-001",
+    "target_domain": "ai-research-observatory"
+  }
+}

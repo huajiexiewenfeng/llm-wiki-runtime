@@ -179,6 +179,16 @@ Use the [5-minute Domain Skill integration guide](docs/guides/domain-skill-integ
 
 ## Skill and Workload Entry Modes (0.3)
 
+Choose the Principal topology before copying contracts:
+
+| Mode | Runtime caller | Reference |
+| --- | --- | --- |
+| Skill-only | Domain Skill registered through SCP | HR compatibility example |
+| Harness-only | Independent `workload/domain_harness` | Observatory Harness |
+| Skill+Harness | Separate Skill and Harness Principals in one Domain | Complete Observatory example |
+
+Use the [Skill + Harness Runtime 0.3 integration manual](docs/guides/skill-harness-llm-wiki-runtime-integration.zh.md) for the LLM-executed assessment and implementation workflow.
+
 Existing Skills keep the compatible SCP flow: publish `scp.yml`, then an
 operator or maintain workflow runs `scan-scp --scp-path-json ... --write` to
 refresh the Skill entries. A `principal.yml` is for a governed Workload (for
@@ -380,6 +390,7 @@ These boundaries keep the runtime small, deterministic, and replaceable.
 
 ### Examples
 
+- [AI Research Observatory Skill+Harness reference](examples/ai-research-observatory/README.zh-CN.md)
 - [HR profile](examples/hr/llm-wiki-profile.yml)
 - [DevOps profile](examples/devops/llm-wiki-profile.yml)
 - [HR SCP](examples/scp/hr-resume-screening.scp.yml)
@@ -389,6 +400,7 @@ These boundaries keep the runtime small, deterministic, and replaceable.
 
 ### Guides
 
+- [Skill + Harness Runtime 0.3 integration manual, Chinese](docs/guides/skill-harness-llm-wiki-runtime-integration.zh.md)
 - [Domain Skill integration quickstart, Chinese](docs/guides/domain-skill-integration-quickstart.zh.md)
 - [HR integration guide, Chinese](docs/guides/hr-llm-wiki-integration.zh.md)
 - [HR implementation guide, Chinese](docs/guides/hr-skill-llm-wiki-runtime-implementation.zh.md)

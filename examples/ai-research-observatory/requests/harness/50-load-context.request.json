@@ -1,0 +1,19 @@
+{
+  "protocol_version": "v0.1",
+  "request_id": "example-harness-load-context-001",
+  "principal_id": "ai-research-observatory-harness",
+  "operation": "load_context",
+  "scope_root": "__ABSOLUTE_DOMAIN_WORKSPACE__",
+  "mapping_id": "ai-research-observatory-memory",
+  "payload": {
+    "include": ["domains/ai-research-observatory/**"],
+    "exclude": ["sources/originals/**", ".meta/**"],
+    "max_files": 1,
+    "max_chars_per_file": 8000,
+    "path_filters": ["domains/ai-research-observatory/directions/example-direction/revisions/r1.md"],
+    "glob_filters": [],
+    "order": "path_asc",
+    "policy": "data_only",
+    "target_domain": "ai-research-observatory"
+  }
+}

@@ -516,6 +516,8 @@ Resolve Runtime Binding
 
 ## 6. 新 Domain 接入决策画布
 
+本画布不仅判断是否值得接入 Runtime，还必须判断真实调用主体属于 `Skill-only`、`Harness-only` 还是 `Skill+Harness`。存在独立 CLI、Scheduler、Service、Plan、Human Gate、Receipt 或恢复流程时，不能默认把 Harness 伪装成 Skill。完成本章盘点后，使用[Skill + Harness Runtime 0.3 评估与实施手册](../guides/skill-harness-llm-wiki-runtime-integration.zh.md)冻结 Principal 与 Mapping Owner。
+
 ### 6.1 接入前先填写
 
 | 字段 | 要回答的问题 |
@@ -898,6 +900,7 @@ HR 当前证明 first-party 模式已经进入“可重复”候选区间，但�
 ### 11.2 参考资料
 
 - [llm-wiki-runtime V0.1 工程复盘](../retrospectives/llm-wiki-runtime-v0.1-engineering-retrospective.zh.md)
+- [Skill + Harness Runtime 0.3 评估与实施手册](../guides/skill-harness-llm-wiki-runtime-integration.zh.md)
 - [Domain Skill 通用接入手册](../guides/domain-skill-integration-quickstart.zh.md)
 - [HR 接入指南](../guides/hr-llm-wiki-integration.zh.md)
 - [HR Skill 实施指南](../guides/hr-skill-llm-wiki-runtime-implementation.zh.md)

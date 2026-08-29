@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "source": {
+    "repository": "https://github.com/huajiexiewenfeng/ai-research-observatory",
+    "commit": "b9c9bc6a04f5a9efeea7d7b8840bec370f61d69c"
+  },
+  "contracts": {
+    "principal.yml": {
+      "source_path": "src/ai_observatory/memory/assets/principal.yml",
+      "sha256": "27642e7b95f5ab8c5f3644e35c7ae54b76912a717698c5d49daf16ef21147665"
+    },
+    "scp.yml": {
+      "source_path": "src/ai_observatory/memory/assets/scp.yml",
+      "sha256": "e0c66252fc9c97ebfae626e67a27ef56158696930abc955d83ddb0c31de1bc0a"
+    },
+    "llm-wiki-profile.yml": {
+      "source_path": "src/ai_observatory/memory/assets/llm-wiki-profile.yml",
+      "sha256": "22410bb7a678cc5ebb984ef778e8c611094d6194e74831ac33fc0789dcc2da8d"
+    },
+    "ingest-mapping.yml": {
+      "source_path": "src/ai_observatory/memory/assets/ingest-mapping.yml",
+      "sha256": "8b7e45c421fd20e796a0b84265a5d27863c5e78e0d79eccac013c8d603ac936f"
+    }
+  }
+}

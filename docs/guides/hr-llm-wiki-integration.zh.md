@@ -1,5 +1,7 @@
 # HR 接入 llm-wiki-runtime 教程
 
+> 版本边界：本文记录的是源自 Runtime 0.1、由 Runtime 0.3 compatibility adapter 继续支持的 **Skill-only** 接入。它不包含 Workload Principal，也不是新 Harness 的实现模板。新 Harness 必须使用 `principal.yml`、v0.2 Mapping 和 `llm-wiki invoke`，Invocation 失败不得回退到本文中的 legacy 写命令。
+
 本文说明 HR domain skill 如何接入 `llm-wiki-runtime`。目标不是让 HR 用户直接学习 CLI，而是让 HR skill 在内部自动使用 wiki backend，并在不可用时安静降级。
 
 ## V0.1 接入顺序

@@ -1,0 +1,13 @@
+{
+  "protocol_version": "v0.1",
+  "request_id": "example-harness-find-records-001",
+  "principal_id": "ai-research-observatory-harness",
+  "operation": "find_records",
+  "scope_root": "__ABSOLUTE_DOMAIN_WORKSPACE__",
+  "mapping_id": "ai-research-observatory-memory",
+  "payload": {
+    "record_type": "research_direction_revision",
+    "lookup_value": "example-record-001",
+    "target_domain": "ai-research-observatory"
+  }
+}

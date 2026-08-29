@@ -1,5 +1,7 @@
 # Domain Skill 接入 llm-wiki-runtime：5 分钟手册
 
+> 本文是既有 Domain Skill 的 **Skill-only 快速入口**。如果项目包含独立 CLI、Scheduler、Service 或受治理 Harness，先阅读[Skill + Harness Runtime 0.3 评估与实施手册](skill-harness-llm-wiki-runtime-integration.zh.md)，完成模式判定后再实施。
+
 本文用于把一个本地 Domain Skill 接入通用 `llm-wiki-runtime`，同时不改变用户原来的使用方式。
 
 一句话原则：
@@ -30,105 +32,9 @@ my-domain-copilot/
 
 不要让 Domain Skill 直接写 `.llm-wiki`，所有读写都走 runtime CLI。
 
-### 0.3：选择 Skill/SCP 兼容入口或 Workload 入口
+### Runtime 0.3 模式边界
 
-普通业务 Skill 继续使用本章的 `scp.yml`，由维护流程执行
-`scan-scp --scp-path-json ... --write`。受治理的 Harness 是 Workload，必须额外
-携带并显式注册 `principal.yml`，不能把 Workload 当作 SCP Skill：
-
-```yaml
-principal_version: v0.1
-principal:
-  id: my-domain-harness
-  kind: workload
-  role: domain_harness
-  domain: my-domain
-llm_wiki:
-  profile: my-domain
-  fallback_mode: evidence_only
-query:
-  primary_domain: my-domain
-  supports: []
-ingest:
-  produces:
-    - domain: my-domain
-      record_type: knowledge_note
-```
-
-```powershell
-llm-wiki register-principal --manifest .\principal.yml --registry-path .\principal-registry.json
-llm-wiki scan-scp --scp-path-json '[".\\my-business-skill\\scp.yml"]' --write --output .\principal-registry.json
-```
-
-顶层 `skills` 是 Registry `principals` 中 `kind: skill` 的确定性只读投影，
-用于兼容旧调用；它不是独立授权来源，不能独立修改。扫描 SCP 只能刷新
-Skill 条目，且必须保留已注册 Workload。
-
-`principal.id` 是协议中的主体标识，用于契约 digest 与审计绑定；它不是密码、
-证书、签名密钥或任何加密学身份保证。
-
-Workload 通过一个 `invoke` 请求调用 Runtime。完整 Query 请求和命令如下：
-
-```json
-{
-  "protocol_version": "v0.1",
-  "request_id": "req-query-001",
-  "principal_id": "my-domain-harness",
-  "operation": "find_records",
-  "scope_root": "C:\\work\\my-domain-project",
-  "payload": {
-    "record_type": "knowledge_note",
-    "lookup_value": "note-001"
-  }
-}
-```
-
-```powershell
-llm-wiki invoke --request .\request.query.json --registry-path .\principal-registry.json --profile-path .\llm-wiki-profile.yml
-```
-
-写入必须同时绑定 Workload、活动 Profile 和 v0.2 Mapping。Workload 的完整
-`ingest-mapping.yml` 如下（`owner_principal_id` 必须等于注册的主体）：
-
-```yaml
-mapping:
-  id: my-domain-import
-  version: v0.2
-  domain: my-domain
-  owner_principal_id: my-domain-harness
-  source_types: [user_file]
-  instruction_ref: references/llm-wiki-ingest.md
-
-produces:
-  - record_type: knowledge_note
-```
-
-完整写请求和命令如下：
-
-```json
-{
-  "protocol_version": "v0.1",
-  "request_id": "req-write-001",
-  "principal_id": "my-domain-harness",
-  "operation": "write_record",
-  "scope_root": "C:\\work\\my-domain-project",
-  "mapping_id": "my-domain-import",
-  "payload": {
-    "record_type": "knowledge_note",
-    "variables": {"record_id": "note-001"},
-    "refs": {"source_id": "source-001"},
-    "content_file": "C:\\work\\my-domain-project\\prepared-note.md"
-  }
-}
-```
-
-```powershell
-llm-wiki invoke --request .\request.write.json --registry-path .\principal-registry.json --profile-path .\llm-wiki-profile.yml --mapping-path .\ingest-mapping.yml
-```
-
-Workload Invocation 失败时不得静默回退到旧 `write-record`、`copy-source`、
-`append-log` 等命令；旧命令只保留给 Skill/operator 兼容使用。Runtime 0.2
-已经完成的记录仍可读取，但旧契约下待处理的批准为 stale，必须重新校验后才可写入。
+本手册后续只说明 Skill/SCP 兼容入口。Runtime 0.3 中的 Workload 必须使用独立 `principal.yml`、v0.2 Mapping 和 Principal-aware `llm-wiki invoke`；完整的 Harness-only 与 Skill+Harness 流程统一由上方权威手册说明，不能把本页的 legacy Skill 写命令复制成 Harness fallback。
 
 ### 第 2 步：定义 Domain Profile
 
@@ -175,9 +81,9 @@ Profile 由 Domain 维护；runtime 只执行其中的路径、引用和读写�
 
 ### 第 3 步：定义 Ingest Mapping
 
-本节的 v0.1 `owner_skill_id` 示例只适用于既有 Skill/SCP 兼容入口；它与
-上面的 Workload `principal.yml` 路径隔离。Workload 写入必须使用上一节的
-v0.2 Mapping 和 `owner_principal_id`，不得以 v0.1 Mapping 静默回退。
+本节的 v0.1 `owner_skill_id` 示例只适用于既有 Skill/SCP 兼容入口。Workload
+不使用本节示例；它必须按权威手册使用 v0.2 Mapping 和 `owner_principal_id`，
+不得以 v0.1 Mapping 静默回退。
 
 最小 `ingest-mapping.yml`：
 

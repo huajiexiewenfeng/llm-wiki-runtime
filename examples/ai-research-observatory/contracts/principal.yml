@@ -1,0 +1,23 @@
+principal_version: v0.1
+principal:
+  id: ai-research-observatory-harness
+  kind: workload
+  role: domain_harness
+  domain: ai-research-observatory
+llm_wiki:
+  profile: ai-research-observatory
+  required: false
+  fallback_mode: evidence_only
+trust:
+  level: sensitive_local
+  source_type: harness_generated
+  instruction_policy: data_only
+query:
+  primary_domain: ai-research-observatory
+  supports: []
+ingest:
+  produces:
+    - domain: ai-research-observatory
+      record_type: research_direction_revision
+    - domain: ai-research-observatory
+      log_type: observatory_memory_event

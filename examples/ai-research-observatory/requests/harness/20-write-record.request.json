@@ -1,0 +1,19 @@
+{
+  "protocol_version": "v0.1",
+  "request_id": "example-harness-write-record-001",
+  "principal_id": "ai-research-observatory-harness",
+  "operation": "write_record",
+  "scope_root": "__ABSOLUTE_DOMAIN_WORKSPACE__",
+  "mapping_id": "ai-research-observatory-memory",
+  "payload": {
+    "record_type": "research_direction_revision",
+    "variables": {
+      "direction_id": "example-direction",
+      "revision": "r1"
+    },
+    "refs": {
+      "source_id": "example-source-001"
+    },
+    "content_file": "__ABSOLUTE_APPROVED_RECORD_CONTENT__"
+  }
+}

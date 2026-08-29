@@ -1,0 +1,9 @@
+{
+  "protocol_version": "v0.1",
+  "request_id": "example-harness-resolve-001",
+  "principal_id": "ai-research-observatory-harness",
+  "operation": "resolve",
+  "scope_root": "__ABSOLUTE_DOMAIN_WORKSPACE__",
+  "mapping_id": "ai-research-observatory-memory",
+  "payload": {}
+}
