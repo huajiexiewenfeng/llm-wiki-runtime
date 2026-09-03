@@ -17,7 +17,7 @@ def sha256_file(path: Path) -> str:
 
 def atomic_write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + f".{uuid.uuid4().hex}.tmp")
+    tmp = path.with_name(f".{uuid.uuid4().hex}.tmp")
     try:
         with tmp.open("w", encoding="utf-8", newline="\n") as fh:
             fh.write(text)
